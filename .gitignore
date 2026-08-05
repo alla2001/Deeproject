@@ -141,3 +141,13 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# ---- Deeproject ----
+out/
+release/
+*.log
+tsconfig.*.tsbuildinfo
+
+# electron-builder locks its output while a packaged build is running; use
+#   npx electron-builder --% --win --publish never -c.directories.output=dist
+# to build without closing a running copy.

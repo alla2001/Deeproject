@@ -1,0 +1,29 @@
+appId: com.deeproject.app
+productName: Deeproject
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+  - '!**/{.vscode,.github,scripts,src}'
+  - '!**/*.{map,ts,tsx}'
+# The ConPTY binding and its sidecar exe/dll must live on disk, not inside the
+# asar archive, or the terminal host cannot be launched.
+asarUnpack:
+  - '**/node_modules/@lydell/node-pty/**'
+  - '**/node_modules/@lydell/node-pty-*/**'
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Deeproject
+npmRebuild: false

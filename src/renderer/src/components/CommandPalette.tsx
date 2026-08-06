@@ -3,10 +3,12 @@ import { useStore } from '../state'
 import {
   launchPreset,
   openFilesPanel,
+  openIdeasPanel,
   openInStudio,
   openNotionPanel,
   openRojoPanel,
   openTerminal,
+  openWatchPanel,
   restartTerminal,
   toggleRojo
 } from '../lib/actions'
@@ -154,6 +156,8 @@ export function CommandPalette(): JSX.Element | null {
         icon: '▣',
         run: () => arrangePanels('stack')
       },
+      { id: 'ideas', label: 'Game ideas', icon: '💡', run: () => openIdeasPanel() },
+      { id: 'watch', label: 'Watch a YouTube video', icon: '▶', run: () => openWatchPanel() },
       { id: 'add-project', label: 'Add project folder', icon: '➕', run: () => void addProjects() },
       { id: 'presets', label: 'Edit launch presets', icon: '⚡', run: () => setModal({ kind: 'presets' }) },
       { id: 'settings', label: 'Open settings', icon: '⚙', run: () => setModal({ kind: 'settings' }) }

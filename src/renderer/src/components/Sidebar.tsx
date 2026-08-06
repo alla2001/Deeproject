@@ -7,13 +7,15 @@ import {
   launchPreset,
   openDiscordPanel,
   openFilesPanel,
+  openIdeasPanel,
   openInStudio,
   openNotionPanel,
   openRojoPanel,
   openTerminal,
   restartTerminal,
   stopTerminal,
-  toggleRojo
+  toggleRojo,
+  openWatchPanel
 } from '../lib/actions'
 
 function StatusDot({ id }: { id: string }): JSX.Element {
@@ -416,6 +418,14 @@ export function Sidebar(): JSX.Element {
         ))}
       </div>
 
+      <div className="sidebar-foot">
+        <button className="foot-btn" onClick={() => openIdeasPanel()} title="Game ideas">
+          💡 Ideas
+        </button>
+        <button className="foot-btn" onClick={() => openWatchPanel()} title="Watch a YouTube video">
+          ▶ Watch
+        </button>
+      </div>
       <div className="sidebar-foot">
         <button className="foot-btn" onClick={() => setModal({ kind: 'presets' })}>
           ⚡ Presets

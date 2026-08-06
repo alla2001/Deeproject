@@ -212,6 +212,27 @@ export interface WindowBounds {
   maximized: boolean
 }
 
+/** A game idea kept in the app rather than scattered across notes apps. */
+export interface GameIdea {
+  id: string
+  title: string
+  body: string
+  tags: string[]
+  pinned: boolean
+  /** Optional link back to a project once an idea starts being built. */
+  projectId: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** A YouTube link saved for later, played in the Watch panel. */
+export interface SavedVideo {
+  id: string
+  url: string
+  title: string
+  addedAt: number
+}
+
 /**
  * The renderer owns this document and writes it wholesale. Window bounds live
  * in a separate file because the main process writes those, and sharing one
@@ -224,6 +245,8 @@ export interface AppState {
   terminals: TerminalConfig[]
   presets: LaunchPreset[]
   settings: AppSettings
+  ideas: GameIdea[]
+  videos: SavedVideo[]
 }
 
 export interface PtyStartOptions {

@@ -131,6 +131,15 @@ export function openDiscordPanel(projectId: string): void {
   openAuxPanel(`discord:${projectId}`, 'discord', `🐛 reports · ${project.name}`, { projectId })
 }
 
+/** Panels that belong to the workspace rather than a single project. */
+export function openWatchPanel(): void {
+  openAuxPanel('watch', 'watch', '▶ watch', {})
+}
+
+export function openIdeasPanel(): void {
+  openAuxPanel('ideas', 'ideas', '💡 ideas', {})
+}
+
 function fileLabel(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath
 }

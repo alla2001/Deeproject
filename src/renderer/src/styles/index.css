@@ -1952,6 +1952,320 @@ kbd {
   color: var(--ok);
 }
 
+/* ---------- watch ---------- */
+
+.watch-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  container-type: inline-size;
+}
+
+.watch-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
+}
+
+.watch-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.watch-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.watch-stage {
+  flex: 1;
+  min-width: 0;
+  background: #000;
+  display: grid;
+  place-items: center;
+}
+
+.watch-stage webview {
+  width: 100%;
+  height: 100%;
+  border: none;
+  /* A webview is inline by default and leaves a gap under it otherwise. */
+  display: inline-flex;
+}
+
+.watch-empty {
+  text-align: center;
+  color: var(--text-faint);
+  padding: 20px;
+}
+
+.watch-mark {
+  font-size: 34px;
+  opacity: 0.5;
+  margin-bottom: 8px;
+}
+
+.watch-list {
+  width: 190px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--line-soft);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-1);
+}
+
+.watch-list-empty {
+  padding: 14px 8px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.watch-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.watch-item:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.watch-item--on {
+  background: var(--bg-3);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.watch-item-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- ideas ---------- */
+
+.ideas-panel {
+  height: 100%;
+  display: flex;
+  background: var(--bg);
+  container-type: inline-size;
+}
+
+.ideas-list {
+  width: 230px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line-soft);
+  background: var(--bg-1);
+}
+
+.ideas-head {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.ideas-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.ideas-empty {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--text-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.ideas-empty--center {
+  height: 100%;
+  justify-content: center;
+}
+
+.idea-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+
+.idea-row:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.idea-row--on {
+  background: var(--bg-3);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.idea-row-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idea-pin {
+  color: var(--warn);
+  margin-right: 4px;
+}
+
+.idea-row-meta {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.idea-tag {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.idea-tag--removable {
+  cursor: pointer;
+}
+
+.idea-tag--removable:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.idea-age {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.ideas-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  gap: 8px;
+}
+
+.ideas-editor-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.idea-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 6px;
+}
+
+.idea-title:hover {
+  border-color: var(--line-soft);
+}
+
+.idea-meta-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.idea-tags {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.idea-tag-input {
+  width: 78px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.idea-body {
+  flex: 1;
+  resize: none;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px;
+}
+
+.idea-footer {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+/*
+ * A slim panel cannot show a list and an editor side by side without squeezing
+ * both into uselessness, so they stack. Must follow the rules above: @container
+ * carries no specificity of its own.
+ */
+@container (max-width: 560px) {
+  .ideas-panel {
+    flex-direction: column;
+  }
+
+  .ideas-list {
+    width: auto;
+    max-height: 45%;
+    border-right: none;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .ideas-editor {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+/* Same idea for the watch panel: the saved list drops below the player. */
+@container (max-width: 520px) {
+  .watch-body {
+    flex-direction: column;
+  }
+
+  .watch-list {
+    width: auto;
+    max-height: 34%;
+    border-left: none;
+    border-top: 1px solid var(--line-soft);
+  }
+}
+
 /* ---------- dialog extras ---------- */
 
 .tabstrip {

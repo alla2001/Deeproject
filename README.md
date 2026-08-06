@@ -65,6 +65,23 @@ them to new terminals; "Apply look to existing terminals" pushes a change down t
 the ones already open. Settings → Default background applies an image to every
 terminal that doesn't set its own.
 
+**Ideas.** The 💡 button in the sidebar footer opens a scratchpad for game ideas:
+a searchable list on one side, a title/body editor on the other. Ideas take tags,
+can be pinned to the top, and can be linked to a project once you start building
+one. Everything saves as you type, into the same `state.json` as the rest.
+
+**Watch.** The ▶ button opens YouTube in a dockable tab — paste any link (watch,
+share, playlist, `/shorts`, `/live`, with or without a timestamp) and it plays
+beside your terminals. **Save** keeps a link in a sidebar list for later.
+
+It loads youtube.com in a `<webview>` rather than the `/embed` player, because
+the embed refuses to run from this app's `app://` origin — YouTube answers with
+*Error 153*, and the only workarounds are forging a referrer or serving the whole
+renderer over http. Loading the site is plain browsing, so it works, and search
+and related videos come with it. The view has its own `persist:watch` session, so
+signing in there stays out of the rest of the app. Nothing is downloaded; only
+the URLs you save are stored.
+
 **Presets.** Settings → Presets edits the launch list — label, emoji, command,
 colour, and whether it is pinned to project rows. The built-in Claude presets can
 be edited but not deleted.

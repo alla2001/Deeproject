@@ -3,7 +3,9 @@ import type {
   AppSettings,
   AppState,
   DiscordConfig,
+  GameIdea,
   LaunchPreset,
+  SavedVideo,
   NotionConfig,
   Project,
   PtyStatus,
@@ -37,6 +39,8 @@ interface Store {
   terminals: TerminalConfig[]
   presets: LaunchPreset[]
   settings: AppSettings
+  ideas: GameIdea[]
+  videos: SavedVideo[]
   shells: ShellInfo[]
   statuses: Record<string, PtyStatus>
   stats: Record<string, TerminalStats>
@@ -88,6 +92,14 @@ interface Store {
 
   /** `immediate: false` for continuous input such as dragging a slider. */
   updateSettings(patch: Partial<AppSettings>, immediate?: boolean): void
+
+  addIdea(): GameIdea
+  /** `immediate: false` while typing into the editor. */
+  updateIdea(id: string, patch: Partial<GameIdea>, immediate?: boolean): void
+  removeIdea(id: string): void
+
+  addVideo(url: string, title: string): SavedVideo | null
+  removeVideo(id: string): void
   updatePreset(id: string, patch: Partial<LaunchPreset>): void
   addPreset(): LaunchPreset
   removePreset(id: string): void
@@ -96,8 +108,8 @@ interface Store {
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 function snapshot(): AppState {
-  const { projects, terminals, presets, settings } = useStore.getState()
-  return { schemaVersion: SCHEMA_VERSION, projects, terminals, presets, settings }
+  const { projects, terminals, presets, settings, ideas, videos } = useStore.getState()
+  return { schemaVersion: SCHEMA_VERSION, projects, terminals, presets, settings, ideas, videos }
 }
 
 /**
@@ -144,6 +156,8 @@ export const useStore = create<Store>((set, get) => ({
   terminals: [],
   presets: [],
   settings: DEFAULT_SETTINGS,
+  ideas: [],
+  videos: [],
   shells: [],
   statuses: {},
   stats: {},
@@ -173,6 +187,8 @@ export const useStore = create<Store>((set, get) => ({
       terminals: state.terminals,
       presets: state.presets,
       settings: state.settings,
+      ideas: state.ideas ?? [],
+      videos: state.videos ?? [],
       shells,
       statuses,
       rojoStates: Object.fromEntries(rojoStates.map((r) => [r.projectId, r])),
@@ -389,6 +405,54 @@ export const useStore = create<Store>((set, get) => ({
       window.api.stats.setInterval(patch.statsIntervalMs)
     }
     persist(immediate)
+  },
+
+  addIdea() {
+    const now = Date.now()
+    const idea: GameIdea = {
+      id: crypto.randomUUID(),
+      title: 'New idea',
+      body: '',
+      tags: [],
+      pinned: false,
+      projectId: null,
+      createdAt: now,
+      updatedAt: now
+    }
+    set((s) => ({ ideas: [idea, ...s.ideas] }))
+    persist()
+    return idea
+  },
+
+  updateIdea(id, patch, immediate = true) {
+    set((s) => ({
+      ideas: s.ideas.map((i) => (i.id === id ? { ...i, ...patch, updatedAt: Date.now() } : i))
+    }))
+    persist(immediate)
+  },
+
+  removeIdea(id) {
+    set((s) => ({ ideas: s.ideas.filter((i) => i.id !== id) }))
+    persist()
+  },
+
+  addVideo(url, title) {
+    const trimmed = url.trim()
+    if (!trimmed) return null
+    const video: SavedVideo = {
+      id: crypto.randomUUID(),
+      url: trimmed,
+      title: title.trim() || trimmed,
+      addedAt: Date.now()
+    }
+    set((s) => ({ videos: [video, ...s.videos.filter((v) => v.url !== trimmed)] }))
+    persist()
+    return video
+  },
+
+  removeVideo(id) {
+    set((s) => ({ videos: s.videos.filter((v) => v.id !== id) }))
+    persist()
   },
 
   updatePreset(id, patch) {

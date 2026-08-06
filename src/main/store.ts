@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import type {
   AppSettings,
   AppState,
+  GameIdea,
   LaunchPreset,
   Project,
+  SavedVideo,
   TerminalConfig,
   WindowBounds
 } from '@shared/types'
@@ -37,8 +39,11 @@ class JsonFile<T> {
     try {
       if (!existsSync(this.file)) return this.fallback
       const raw = readFileSync(this.file, 'utf8')
-      if (!raw.trim()) return this.fallback
-      return JSON.parse(raw) as T
+      // A UTF-8 BOM makes JSON.parse throw, which would silently discard every
+      // project. Editors on Windows add one readily, so strip it.
+      const text = raw.replace(/^﻿/, '')
+      if (!text.trim()) return this.fallback
+      return JSON.parse(text) as T
     } catch (err) {
       console.error(`[store] failed to read ${this.file}:`, err)
       return this.fallback
@@ -83,7 +88,9 @@ const EMPTY_STATE: AppState = {
   projects: [],
   terminals: [],
   presets: BUILTIN_PRESETS,
-  settings: DEFAULT_SETTINGS
+  settings: DEFAULT_SETTINGS,
+  ideas: [],
+  videos: []
 }
 
 /** Shell ids that Claude's TUI does not render correctly under. */
@@ -97,7 +104,9 @@ function migrate(raw: Partial<AppState> | null): AppState {
     projects: Array.isArray(raw?.projects) ? raw!.projects : [],
     terminals: Array.isArray(raw?.terminals) ? raw!.terminals : [],
     presets: Array.isArray(raw?.presets) ? raw!.presets : [],
-    settings: { ...DEFAULT_SETTINGS, ...(raw?.settings ?? {}) }
+    settings: { ...DEFAULT_SETTINGS, ...(raw?.settings ?? {}) },
+    ideas: Array.isArray(raw?.ideas) ? raw!.ideas.map(normalizeIdea) : [],
+    videos: Array.isArray(raw?.videos) ? raw!.videos.map(normalizeVideo) : []
   }
 
   state.projects = state.projects.map((p, i) => normalizeProject(p, i))
@@ -150,6 +159,29 @@ function normalizeProject(p: Partial<Project>, index: number): Project {
     roblox: { ...DEFAULT_ROBLOX, ...(p.roblox ?? {}) },
     notion: { ...DEFAULT_NOTION, ...(p.notion ?? {}) },
     discord: { ...DEFAULT_DISCORD, ...(p.discord ?? {}) }
+  }
+}
+
+function normalizeIdea(i: Partial<GameIdea>): GameIdea {
+  const now = Date.now()
+  return {
+    id: i.id ?? crypto.randomUUID(),
+    title: i.title ?? 'Untitled idea',
+    body: i.body ?? '',
+    tags: Array.isArray(i.tags) ? i.tags.filter((t) => typeof t === 'string') : [],
+    pinned: i.pinned ?? false,
+    projectId: i.projectId ?? null,
+    createdAt: i.createdAt ?? now,
+    updatedAt: i.updatedAt ?? i.createdAt ?? now
+  }
+}
+
+function normalizeVideo(v: Partial<SavedVideo>): SavedVideo {
+  return {
+    id: v.id ?? crypto.randomUUID(),
+    url: v.url ?? '',
+    title: v.title ?? 'Untitled',
+    addedAt: v.addedAt ?? Date.now()
   }
 }
 

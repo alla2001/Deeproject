@@ -35,6 +35,26 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null
 
+/**
+ * When the app is launched from a terminal that later goes away, writing to
+ * stdio raises EPIPE. Node turns that into an uncaught exception and Electron
+ * shows a crash dialog — so diagnostics must never be able to kill the app.
+ */
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', () => {
+    /* the pipe is gone; there is nowhere left to report it */
+  })
+}
+
+/** Console output that cannot throw, whatever has happened to stdio. */
+function safeLog(...args: unknown[]): void {
+  try {
+    console.error(...args)
+  } catch {
+    // Nothing to do: logging is best-effort.
+  }
+}
+
 function createWindow(): void {
   const saved = loadWindow()
 
@@ -54,6 +74,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // The Watch panel hosts YouTube in a <webview>. An iframe cannot work:
+      // YouTube's embed rejects a non-http origin like app:// with "Error 153",
+      // and a webview loads the site as a real top-level page instead.
+      webviewTag: true,
       spellcheck: false,
       backgroundThrottling: false
     }
@@ -85,13 +109,13 @@ function createWindow(): void {
   // Surface renderer failures on the terminal that launched the app, otherwise
   // a blank window gives no clue what went wrong.
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
-    if (level >= 2) console.error(`[renderer] ${message}  (${sourceId}:${line})`)
+    if (level >= 2) safeLog(`[renderer] ${message}  (${sourceId}:${line})`)
   })
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    console.error(`[renderer] did-fail-load ${code} ${desc} ${url}`)
+    safeLog(`[renderer] did-fail-load ${code} ${desc} ${url}`)
   })
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
-    console.error('[renderer] render-process-gone', details)
+    safeLog('[renderer] render-process-gone', details)
   })
 
   if (process.argv.includes('--devtools')) {
@@ -129,6 +153,13 @@ function createWindow(): void {
 function applyContentSecurityPolicy(): void {
   if (process.env['ELECTRON_RENDERER_URL']) return
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    // Only police our own documents. This callback sees every response in the
+    // session, including those inside third-party frames — overwriting their
+    // CSP with ours breaks them (a YouTube embed loses all of its scripts).
+    if (!details.url.startsWith(`${APP_SCHEME}://`)) {
+      callback({})
+      return
+    }
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -143,6 +174,8 @@ function applyContentSecurityPolicy(): void {
             `img-src 'self' data: ${MEDIA_SCHEME}: https://cdn.discordapp.com https://media.discordapp.net`,
             "font-src 'self' data:",
             "connect-src 'self' data: blob:",
+            // The Watch panel embeds YouTube's own player in an iframe.
+            'frame-src https://www.youtube-nocookie.com https://www.youtube.com',
             "object-src 'none'",
             "base-uri 'none'",
             "form-action 'none'"

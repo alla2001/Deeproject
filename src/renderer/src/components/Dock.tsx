@@ -16,6 +16,8 @@ import { FilesPanel } from './FilesPanel'
 import { RojoPanel } from './RojoPanel'
 import { NotionPanel } from './NotionPanel'
 import { DiscordPanel } from './DiscordPanel'
+import { WatchPanel } from './WatchPanel'
+import { IdeasPanel } from './IdeasPanel'
 
 type PanelComponent = React.FunctionComponent<IDockviewPanelProps>
 
@@ -25,7 +27,9 @@ const components = {
   files: FilesPanel as unknown as PanelComponent,
   rojo: RojoPanel as unknown as PanelComponent,
   notion: NotionPanel as unknown as PanelComponent,
-  discord: DiscordPanel as unknown as PanelComponent
+  discord: DiscordPanel as unknown as PanelComponent,
+  watch: WatchPanel as unknown as PanelComponent,
+  ideas: IdeasPanel as unknown as PanelComponent
 }
 
 function Watermark(_props: IWatermarkPanelProps): JSX.Element {
@@ -78,17 +82,16 @@ export function Dock(): JSX.Element {
     if (layout && typeof layout === 'object') {
       try {
         event.api.fromJSON(layout as SerializedDockview)
-        // Drop panels whose terminal or project was deleted while we were closed.
+        // Drop panels whose terminal or project was deleted while we were
+        // closed. Panels that belong to no particular project — the ideas and
+        // watch tabs — carry no ids and are always kept.
         for (const panel of [...event.api.panels]) {
           const params = (panel.params ?? {}) as Partial<TerminalPanelParams> & {
             projectId?: string
           }
           const stale =
-            typeof params.terminalId === 'string'
-              ? !knownTerminals.has(params.terminalId)
-              : typeof params.projectId === 'string'
-                ? !knownProjects.has(params.projectId)
-                : true
+            (typeof params.terminalId === 'string' && !knownTerminals.has(params.terminalId)) ||
+            (typeof params.projectId === 'string' && !knownProjects.has(params.projectId))
           if (stale) event.api.removePanel(panel)
         }
       } catch (err) {

@@ -91,7 +91,16 @@ const layout = {
     root: {
       type: 'branch',
       data: [
-        { type: 'branch', data: [leaf(`files:${projectId}`, 'g1')], size: 300 },
+        {
+          // Stacked so files, ideas and watch are all visible at once.
+          type: 'branch',
+          data: [
+            leaf(`files:${projectId}`, 'g1'),
+            { type: 'leaf', data: { views: ['ideas'], activeView: 'ideas', id: 'g5' }, size: 300 },
+            { type: 'leaf', data: { views: ['watch'], activeView: 'watch', id: 'g6' }, size: 240 }
+          ],
+          size: 340
+        },
         { type: 'branch', data: [leaf(editorId, 'g2'), leaf(terminalId, 'g3')], size: 560 },
         {
           type: 'branch',
@@ -157,6 +166,20 @@ const layout = {
       tabComponent: 'props.defaultTabComponent',
       params: { projectId },
       title: '🐛 reports'
+    },
+    ideas: {
+      id: 'ideas',
+      contentComponent: 'ideas',
+      tabComponent: 'props.defaultTabComponent',
+      params: {},
+      title: '💡 ideas'
+    },
+    watch: {
+      id: 'watch',
+      contentComponent: 'watch',
+      tabComponent: 'props.defaultTabComponent',
+      params: {},
+      title: '▶ watch'
     }
   },
   activeGroup: 'g2'

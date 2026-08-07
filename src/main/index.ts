@@ -96,8 +96,14 @@ function createWindow(): void {
     embedManager.releaseMouse()
     embedManager.suspendInput()
   })
-  // Coming back to the front hands input to whichever embed is in front of us.
-  mainWindow.on('focus', () => embedManager.refocus())
+  // Coming back to the front hands input to whichever embed is in front of us,
+  // and stops the taskbar button flashing about a terminal you are now looking
+  // at. What the terminal wanted stays flagged in the sidebar until it is
+  // actually opened.
+  mainWindow.on('focus', () => {
+    embedManager.refocus()
+    mainWindow?.flashFrame(false)
+  })
 
   // Remember size/position. `getNormalBounds` reports the restored geometry, so
   // maximising then quitting doesn't save a full-screen rectangle as the

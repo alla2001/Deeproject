@@ -19,6 +19,19 @@ import {
   openWatchPanel
 } from '../lib/actions'
 
+/** Short enough to sit in a sidebar row without pushing the title out. */
+const ATTENTION_BADGE: Record<'bell' | 'quiet' | 'exited', string> = {
+  bell: 'asking',
+  quiet: 'idle',
+  exited: 'done'
+}
+
+const ATTENTION_TITLE: Record<'bell' | 'quiet' | 'exited', string> = {
+  bell: 'This terminal rang for you.',
+  quiet: 'This terminal has gone quiet — finished, or waiting on you.',
+  exited: 'This terminal finished.'
+}
+
 function StatusDot({ id }: { id: string }): JSX.Element {
   const status = useStore((s) => s.statuses[id] ?? 'stopped')
   return <span className={`dot dot--${status}`} title={status} />
@@ -47,6 +60,7 @@ function TerminalRow({
   const active = useStore((s) => s.activeTerminalId === term.id)
   const isOpen = useStore((s) => s.openPanels.includes(term.id))
   const stats = useStore((s) => s.stats[term.id])
+  const attention = useStore((s) => s.attention[term.id])
   const preset = useStore((s) => s.presets.find((p) => p.id === term.presetId))
   const setModal = useStore((s) => s.setModal)
   const openMenu = useMenu((s) => s.open)
@@ -70,24 +84,47 @@ function TerminalRow({
     { label: 'Close terminal', onClick: () => void closeTerminal(term.id), danger: true }
   ]
 
+  const wants = attention?.needsYou === true && !term.paused
+  const working = attention?.activity === 'busy' && status === 'running' && !term.paused
+
   return (
     <div
-      className={`term-row${active ? ' term-row--active' : ''}`}
+      className={`term-row${active ? ' term-row--active' : ''}${wants ? ' term-row--wants' : ''}`}
       style={{ ['--accent' as string]: term.color }}
       onClick={() => openTerminal(term.id)}
       onContextMenu={(e) => openMenu(e, items)}
-      title={`${term.command ?? 'shell'}\n${term.cwd}`}
+      title={
+        wants
+          ? `${ATTENTION_TITLE[attention!.reason ?? 'quiet']}\n\n${attention!.tail || 'No output to show.'}`
+          : `${term.command ?? 'shell'}\n${term.cwd}`
+      }
     >
       <span className="term-row-emoji">{term.emoji}</span>
       <span className="term-row-title">{label}</span>
-      {status === 'running' && !term.paused && stats && (
-        <span className="term-row-stats" title={`${stats.cpu.toFixed(1)}% CPU · ${stats.processes} processes`}>
-          {stats.cpu >= 1 ? `${stats.cpu.toFixed(0)}%` : ''} {formatBytes(stats.memory)}
-        </span>
+      {/* A terminal that wants you says so instead of showing its memory use. */}
+      {wants ? (
+        <span className="term-row-wants">{ATTENTION_BADGE[attention!.reason ?? 'quiet']}</span>
+      ) : (
+        status === 'running' &&
+        !term.paused &&
+        stats && (
+          <span
+            className="term-row-stats"
+            title={`${stats.cpu.toFixed(1)}% CPU · ${stats.processes} processes`}
+          >
+            {stats.cpu >= 1 ? `${stats.cpu.toFixed(0)}%` : ''} {formatBytes(stats.memory)}
+          </span>
+        )
       )}
       {term.paused && <span className="term-row-badge term-row-badge--paused">paused</span>}
       {!isOpen && !term.paused && <span className="term-row-badge">closed</span>}
-      {term.paused ? <span className="dot dot--paused" title="paused" /> : <StatusDot id={term.id} />}
+      {term.paused ? (
+        <span className="dot dot--paused" title="paused" />
+      ) : working ? (
+        <span className="dot dot--working" title="working" />
+      ) : (
+        <StatusDot id={term.id} />
+      )}
     </div>
   )
 }

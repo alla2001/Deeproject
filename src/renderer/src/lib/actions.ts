@@ -129,6 +129,18 @@ export function openTerminal(id: string): void {
   openPanel(term)
 }
 
+/**
+ * Bring a terminal to the front to be looked at. Unlike `openTerminal` this
+ * never relaunches a dead one: it is reached by clicking a notification about
+ * something that already happened, and the output is the point.
+ */
+export function revealTerminal(id: string): void {
+  const term = useStore.getState().terminals.find((t) => t.id === id)
+  if (!term) return
+  openPanel(term)
+  window.api.attention.seen(id)
+}
+
 export function projectPresets(): LaunchPreset[] {
   return useStore.getState().presets
 }

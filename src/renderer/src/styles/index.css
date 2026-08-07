@@ -575,6 +575,65 @@ kbd {
   border: 1px solid var(--text-faint);
 }
 
+/* Producing output, or burning CPU: a heartbeat rather than a steady light. */
+.dot--working {
+  background: var(--ok);
+  animation: dot-working 1.6s ease-in-out infinite;
+}
+
+@keyframes dot-working {
+  0%,
+  100% {
+    opacity: 0.35;
+    box-shadow: none;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 70%, transparent);
+  }
+}
+
+/*
+  A terminal that has finished or stopped to ask something. This is the one
+  thing in the sidebar worth interrupting a glance for, so it gets the accent
+  bar and full-strength text that nothing else at rest has.
+*/
+.term-row--wants {
+  color: var(--text);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+}
+
+.term-row--wants::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  background: var(--warn);
+  border-radius: 0 2px 2px 0;
+}
+
+.term-row-wants {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot--working {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .term-row-badge--paused {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 45%, transparent);

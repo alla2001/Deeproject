@@ -970,6 +970,41 @@ export function SettingsDialog(): JSX.Element {
       </p>
 
       <hr className="rule" />
+      <h3 className="section">Attention</h3>
+
+      <Field
+        label="Flag a terminal after"
+        hint={
+          settings.attentionIdleMs === 0 ? 'off' : `${(settings.attentionIdleMs / 1000).toFixed(1)}s`
+        }
+      >
+        <input
+          type="range"
+          min={0}
+          max={30000}
+          step={1000}
+          value={settings.attentionIdleMs}
+          onChange={(e) => update({ attentionIdleMs: Number(e.target.value) }, false)}
+          onMouseUp={() => update({}, true)}
+        />
+      </Field>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.attentionNotify}
+          disabled={settings.attentionIdleMs === 0}
+          onChange={(e) => update({ attentionNotify: e.target.checked }, true)}
+        />
+        also show a Windows notification
+      </label>
+      <p className="muted">
+        A running terminal that goes quiet for this long — with nothing left in its process tree —
+        is marked in the sidebar as wanting you, as is one that rings the bell or exits. Claude
+        rings when it stops to ask a question. The mark clears when you open that terminal. Slide to
+        0 to switch it off; raise it if sessions that are only thinking get flagged.
+      </p>
+
+      <hr className="rule" />
       <h3 className="section">Notion</h3>
       <NotionTokenField />
 

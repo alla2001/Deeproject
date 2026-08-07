@@ -205,6 +205,13 @@ export interface AppSettings {
   editorMinimap: boolean
   /** Poll interval for terminal resource stats, in ms. 0 disables monitoring. */
   statsIntervalMs: number
+  /**
+   * How long a running terminal must stay quiet before it is flagged as wanting
+   * you. 0 turns the whole thing off, bell included.
+   */
+  attentionIdleMs: number
+  /** Also raise a Windows notification, not just the in-app marker. */
+  attentionNotify: boolean
   /** Notion integration token, encrypted at rest by the OS keystore. */
   notionTokenSet: boolean
 }
@@ -342,6 +349,30 @@ export interface PtyStatusEvent {
 }
 
 /** Aggregated resource use for one terminal's whole process tree. */
+/**
+ * What a terminal is doing, as far as the app can tell from its output and its
+ * process tree — not the same thing as whether the shell is running.
+ */
+export type TerminalActivity =
+  /** Nothing running, or running and yet to say anything. */
+  | 'idle'
+  /** Producing output, or burning CPU. */
+  | 'busy'
+  /** Was working and has stopped: finished, or waiting on you. */
+  | 'waiting'
+
+export interface TerminalAttention {
+  activity: TerminalActivity
+  /** It went quiet, rang, or exited, and has not been looked at since. */
+  needsYou: boolean
+  /** When it started wanting you. */
+  since: number | null
+  /** What raised it: the terminal rang, went quiet, or its process exited. */
+  reason: 'bell' | 'quiet' | 'exited' | null
+  /** Last few lines of output, for the sidebar tooltip and the notification. */
+  tail: string
+}
+
 export interface TerminalStats {
   terminalId: string
   /** Percentage of total machine CPU, already divided by core count. */

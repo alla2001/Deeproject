@@ -14,6 +14,7 @@ import type {
   RojoState,
   ShellInfo,
   TerminalConfig,
+  TerminalAttention,
   TerminalStats
 } from '@shared/types'
 import {
@@ -46,6 +47,8 @@ interface Store {
   shells: ShellInfo[]
   statuses: Record<string, PtyStatus>
   stats: Record<string, TerminalStats>
+  /** Which terminals have finished or stopped to ask something. */
+  attention: Record<string, TerminalAttention>
   rojoStates: Record<string, RojoState>
   notionTokenSet: boolean
   discordTokenSet: boolean
@@ -60,6 +63,7 @@ interface Store {
   init(): Promise<void>
   setStatus(id: string, status: PtyStatus): void
   setStats(all: TerminalStats[]): void
+  setAttention(all: Record<string, TerminalAttention>): void
   setRojoState(state: RojoState): void
   setNotionTokenSet(value: boolean): void
   setDiscordTokenSet(value: boolean): void
@@ -163,6 +167,7 @@ export const useStore = create<Store>((set, get) => ({
   shells: [],
   statuses: {},
   stats: {},
+  attention: {},
   rojoStates: {},
   notionTokenSet: false,
   discordTokenSet: false,
@@ -200,6 +205,7 @@ export const useStore = create<Store>((set, get) => ({
       ready: true
     })
     window.api.stats.setInterval(state.settings.statsIntervalMs)
+    window.api.attention.setIdleMs(state.settings.attentionIdleMs)
   },
 
   setStatus(id, status) {
@@ -212,6 +218,10 @@ export const useStore = create<Store>((set, get) => ({
       for (const entry of all) next[entry.terminalId] = entry
       return { stats: next }
     })
+  },
+
+  setAttention(all) {
+    set({ attention: all })
   },
 
   setRojoState(state) {
@@ -406,6 +416,9 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => ({ settings: { ...s.settings, ...patch } }))
     if (patch.statsIntervalMs !== undefined) {
       window.api.stats.setInterval(patch.statsIntervalMs)
+    }
+    if (patch.attentionIdleMs !== undefined) {
+      window.api.attention.setIdleMs(patch.attentionIdleMs)
     }
     persist(immediate)
   },

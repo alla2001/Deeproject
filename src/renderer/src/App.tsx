@@ -12,7 +12,13 @@ import { TransferDialog } from './components/TransferDialog'
 import { pushData } from './lib/terminals'
 import { altDigit, matches, SHORTCUTS } from './lib/keys'
 import { cyclePanel, focusPanelByIndex } from './lib/dock'
-import { closeTerminal, launchPreset, restartTerminal, startRojo } from './lib/actions'
+import {
+  closeTerminal,
+  launchPreset,
+  restartTerminal,
+  revealTerminal,
+  startRojo
+} from './lib/actions'
 import { dirtyFiles } from './lib/editors'
 
 /** True when the event landed in a text field, where plain chords should type. */
@@ -46,11 +52,41 @@ export default function App(): JSX.Element {
     })
     const offStats = window.api.stats.onUpdate((all) => useStore.getState().setStats(all))
     const offRojo = window.api.rojo.onState((state) => useStore.getState().setRojoState(state))
+    const offAttention = window.api.attention.onUpdate((all) =>
+      useStore.getState().setAttention(all)
+    )
+    // A clicked notification should land on the terminal it was about.
+    const offReveal = window.api.attention.onReveal((terminalId) => revealTerminal(terminalId))
     return () => {
       offData()
       offStatus()
       offStats()
       offRojo()
+      offAttention()
+      offReveal()
+    }
+  }, [])
+
+  /**
+   * Tell the main process which terminal is in front, so that looking at one
+   * counts as having dealt with it. Window focus is part of the question: a
+   * terminal that finishes while Deeproject is behind Studio has not been seen,
+   * however active its tab is.
+   */
+  useEffect(() => {
+    const report = (): void =>
+      window.api.attention.setFocus(
+        useStore.getState().activeTerminalId,
+        document.hasFocus()
+      )
+    report()
+    window.addEventListener('focus', report)
+    window.addEventListener('blur', report)
+    const unsubscribe = useStore.subscribe(report)
+    return () => {
+      window.removeEventListener('focus', report)
+      window.removeEventListener('blur', report)
+      unsubscribe()
     }
   }, [])
 

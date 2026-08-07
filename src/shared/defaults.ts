@@ -59,6 +59,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorWordWrap: false,
   editorMinimap: true,
   statsIntervalMs: 2500,
+  // Long enough to sit through the pause between a model's tool calls, short
+  // enough that a finished session is noticed while you still care.
+  attentionIdleMs: 6000,
+  attentionNotify: true,
   notionTokenSet: false
 }
 

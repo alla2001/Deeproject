@@ -197,6 +197,26 @@ uptime for its whole process tree, in a strip along the bottom of the terminal
 and compactly in the sidebar. Sampling interval is configurable in Settings, or
 0 to turn it off.
 
+**Which terminal wants you.** Running several Claude sessions at once means most
+of them are unattended most of the time, and the only way to notice one had
+finished used to be clicking through the tabs. Deeproject watches for it: a
+terminal that rings the bell — Claude does that when it stops to ask something —
+or goes quiet after working, or exits, is marked in the sidebar with an amber bar
+and a badge saying whether it is **asking**, **idle** or **done**. Hovering shows
+its last few lines. A working terminal's dot pulses instead of sitting still.
+
+Silence alone is not enough to go on, so it is corroborated: the terminal's
+process tree must also be using no CPU, and a run gets fifteen seconds' grace
+before quiet means anything — otherwise every shell would be flagged the moment
+it printed its banner. With the resource monitor off there is nothing to
+corroborate with, so it waits a few seconds longer instead.
+
+The mark clears when you open that terminal, not on a timer, so a session that
+finishes while you are in Studio is still flagged when you come back. If
+Deeproject is not in front, its taskbar button flashes and — unless you turn it
+off in Settings — Windows shows a notification; clicking it opens that terminal.
+Settings has the quiet threshold too, or 0 to switch the whole thing off.
+
 **Rojo.** Each project has its own Rojo config — project file (auto-detected),
 port (each new project gets the next free one), executable override, and optional
 start-on-launch. The 🧩 button on a project row toggles the server, a green chip
@@ -415,6 +435,12 @@ on unload, and every 15 seconds. The Notion token is stored separately in
 node scripts/pty-smoke.cjs                              # ConPTY binding loads
 node scripts/embed-smoke.cjs                            # list dockable windows
 node scripts/embed-attach-test.cjs <pid> "<title>"      # dock/capture/detach round trip
+node scripts/embed-escape-test.cjs <pid>                # an app that undocks itself is put back
+node scripts/attention-test.cjs                         # when a terminal counts as wanting you
+node_modules/electron/dist/electron.exe scripts/embed-input-test.cjs
+                                                        # a docked window really owns the mouse
+node_modules/electron/dist/electron.exe scripts/integration-write-test.cjs
+                                                        # what Notion and Discord actually receive
 node scripts/seed-test-profile.cjs <dir>                # profile with a 2x2 terminal grid
 node scripts/seed-feature-profile.cjs <dir> <project>   # editor + files + rojo layout
 powershell -File scripts/screenshot.ps1 -ProcId <pid>   # capture a window to PNG

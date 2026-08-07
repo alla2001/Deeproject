@@ -23,6 +23,7 @@ import type {
   RojoLogEvent,
   RojoState,
   ShellInfo,
+  TerminalAttention,
   TerminalStats
 } from '@shared/types'
 
@@ -63,6 +64,20 @@ const api = {
   stats: {
     setInterval: (ms: number): void => ipcRenderer.send('stats:interval', ms),
     onUpdate: (cb: (all: TerminalStats[]) => void): (() => void) => on('stats:update', cb)
+  },
+  /** Which terminals have finished or stopped to ask something. */
+  attention: {
+    setIdleMs: (ms: number): void => ipcRenderer.send('attention:idle', ms),
+    /** The terminal the user is looking at, and whether the window has focus. */
+    setFocus: (terminalId: string | null, windowFocused: boolean): void =>
+      ipcRenderer.send('attention:focus', terminalId, windowFocused),
+    seen: (terminalId: string): void => ipcRenderer.send('attention:seen', terminalId),
+    states: (): Promise<Record<string, TerminalAttention>> =>
+      ipcRenderer.invoke('attention:states'),
+    onUpdate: (cb: (all: Record<string, TerminalAttention>) => void): (() => void) =>
+      on('attention:update', cb),
+    /** A notification was clicked; bring that terminal to the front. */
+    onReveal: (cb: (terminalId: string) => void): (() => void) => on('attention:reveal', cb)
   },
   fs: {
     list: (root: string, dir: string): Promise<FileEntry[]> =>

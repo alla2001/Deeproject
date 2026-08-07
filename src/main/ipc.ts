@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
@@ -17,8 +17,10 @@ import type {
   NotionTaskPatch,
   PtyStartOptions,
   RobloxConfig,
-  RobloxCreator
+  RobloxCreator,
+  TerminalStats
 } from '@shared/types'
+import { attentionWatcher } from './attention'
 import { flushAll, loadLayout, loadState, saveLayout, saveState } from './store'
 import {
   applyBundle,
@@ -84,10 +86,63 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
+interface AttentionAlert {
+  terminalId: string
+  reason: 'bell' | 'quiet' | 'exited'
+  tail: string
+}
+
+const ATTENTION_WORDING: Record<AttentionAlert['reason'], string> = {
+  bell: 'is asking for you',
+  quiet: 'has gone quiet',
+  exited: 'has finished'
+}
+
+/**
+ * Tell the user about a terminal that wants them, outside the app's own window.
+ *
+ * The in-app marker is enough when Deeproject is in front; the point of this is
+ * the case it cannot cover — a session finishing while the user is in Studio or
+ * a browser. The taskbar flash is the cheap, always-on half; the toast is
+ * optional because a notification per terminal gets tiresome quickly if you run
+ * a lot of short ones.
+ */
+function announce(alert: AttentionAlert): void {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  if (win && !win.isFocused()) win.flashFrame(true)
+
+  const state = loadState()
+  if (!state.settings.attentionNotify || !Notification.isSupported()) return
+  // A toast for something already on screen is noise.
+  if (win?.isFocused()) return
+
+  const terminal = state.terminals.find((t) => t.id === alert.terminalId)
+  const project = state.projects.find((p) => p.id === terminal?.projectId)
+  const name = terminal ? `${terminal.emoji} ${terminal.title}`.trim() : 'A terminal'
+  const where = project ? ` · ${project.name}` : ''
+
+  const toast = new Notification({
+    title: `${name}${where} ${ATTENTION_WORDING[alert.reason]}`,
+    body: alert.tail || 'No output to show.'
+  })
+  toast.on('click', () => {
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send('attention:reveal', alert.terminalId)
+  })
+  toast.show()
+}
+
 export function registerIpc(): void {
-  ptyManager.on('data', (e) => broadcast('pty:data', e))
+  ptyManager.on('data', (e) => {
+    broadcast('pty:data', e)
+    attentionWatcher.onData(e.terminalId, e.data)
+  })
   ptyManager.on('status', (e) => {
     broadcast('pty:status', e)
+    attentionWatcher.onStatus(e.terminalId, e.status)
     // Resource sampling follows the lifetime of each shell process.
     if (e.status === 'running' && typeof e.pid === 'number') {
       statsMonitor.track(e.terminalId, e.pid)
@@ -96,7 +151,13 @@ export function registerIpc(): void {
     }
   })
 
-  statsMonitor.on('stats', (all) => broadcast('stats:update', all))
+  statsMonitor.on('stats', (all: TerminalStats[]) => {
+    broadcast('stats:update', all)
+    attentionWatcher.onStats(all)
+  })
+
+  attentionWatcher.on('update', (all) => broadcast('attention:update', all))
+  attentionWatcher.on('attention', (e: AttentionAlert) => announce(e))
   rojoManager.on('state', (state) => broadcast('rojo:state', state))
   rojoManager.on('log', (event) => broadcast('rojo:log', event))
 
@@ -132,6 +193,7 @@ export function registerIpc(): void {
   ipcMain.handle('pty:dispose', (_e, id: string) => {
     ptyManager.dispose(id)
     statsMonitor.untrack(id)
+    attentionWatcher.dispose(id)
     return true
   })
   ipcMain.handle('pty:attach', (_e, id: string) => ptyManager.attach(id))
@@ -255,7 +317,19 @@ export function registerIpc(): void {
   })
 
   // ---- resource stats ------------------------------------------------------
-  ipcMain.on('stats:interval', (_e, ms: number) => statsMonitor.setInterval(ms))
+  ipcMain.on('stats:interval', (_e, ms: number) => {
+    statsMonitor.setInterval(ms)
+    // Without sampling there are no CPU readings to corroborate silence with.
+    if (ms <= 0) attentionWatcher.clearStats()
+  })
+
+  // ---- attention -----------------------------------------------------------
+  ipcMain.on('attention:idle', (_e, ms: number) => attentionWatcher.setIdleMs(ms))
+  ipcMain.on('attention:focus', (_e, terminalId: string | null, windowFocused: boolean) =>
+    attentionWatcher.setFocus(terminalId, windowFocused)
+  )
+  ipcMain.on('attention:seen', (_e, terminalId: string) => attentionWatcher.seen(terminalId))
+  ipcMain.handle('attention:states', () => attentionWatcher.states())
 
   // ---- files ---------------------------------------------------------------
   ipcMain.handle('fs:list', async (_e, root: string, dir: string) => {

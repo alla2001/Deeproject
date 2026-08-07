@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync
 import { basename, join } from 'node:path'
 import type {
   AppState,
+  EmbedBounds,
   NotionTaskPatch,
   PtyStartOptions,
   RobloxConfig,
@@ -23,6 +24,7 @@ import {
   verifyRobloxApiKey
 } from './robloxAssets'
 import { isInside, listDirectory, readTextFile, walkFiles, writeTextFile } from './files'
+import { embedManager } from './embed'
 import {
   getPost,
   hasDiscordToken,
@@ -349,6 +351,57 @@ export function registerIpc(): void {
   ipcMain.handle('discord:setArchived', (_e, postId: string, archived: boolean) =>
     setPostArchived(postId, archived)
   )
+
+  // ---- embedded windows ----------------------------------------------------
+  embedManager.on('gone', (hwnd: number) => broadcast('embed:gone', hwnd))
+
+  ipcMain.handle('embed:available', () => ({
+    ok: embedManager.available(),
+    error: embedManager.unavailableReason()
+  }))
+  ipcMain.handle('embed:list', () => embedManager.list())
+
+  ipcMain.handle('embed:attach', (e, hwnd: number) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win) return { ok: false, error: 'No window to dock into.' }
+    // getNativeWindowHandle hands back the HWND as little-endian bytes: eight
+    // of them on x64, four on a 32-bit build.
+    const raw = win.getNativeWindowHandle()
+    const parent =
+      raw.length >= 8 ? Number(raw.readBigUInt64LE(0)) : raw.readUInt32LE(0)
+    return embedManager.attach(hwnd, parent)
+  })
+
+  ipcMain.handle('embed:detach', (_e, hwnd: number) => embedManager.detach(hwnd))
+  ipcMain.handle('embed:states', () => embedManager.states())
+  ipcMain.on('embed:bounds', (_e, hwnd: number, bounds: EmbedBounds) =>
+    embedManager.setBounds(hwnd, bounds)
+  )
+  ipcMain.on('embed:visible', (_e, hwnd: number, visible: boolean) =>
+    embedManager.setVisible(hwnd, visible)
+  )
+  ipcMain.on('embed:allVisible', (_e, visible: boolean) => embedManager.setAllVisible(visible))
+  ipcMain.on('embed:focus', (_e, hwnd: number) => embedManager.focus(hwnd))
+
+  embedManager.on('capture', (hwnd: number | null) => broadcast('embed:capture', hwnd))
+  ipcMain.handle('embed:capture', (_e, hwnd: number) => embedManager.captureMouse(hwnd))
+  ipcMain.handle('embed:release', () => {
+    embedManager.releaseMouse()
+    return true
+  })
+
+  ipcMain.handle('embed:pickExe', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Launch an application',
+      properties: ['openFile'],
+      filters: [{ name: 'Applications', extensions: ['exe', 'lnk', 'bat', 'cmd'] }]
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('embed:launch', (_e, exePath: string) => embedManager.launch(exePath))
 
   // ---- window controls -----------------------------------------------------
   ipcMain.handle('win:isMaximized', (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false)

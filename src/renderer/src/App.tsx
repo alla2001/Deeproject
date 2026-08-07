@@ -7,6 +7,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { QuickOpen } from './components/QuickOpen'
 import { ContextMenuHost } from './components/ContextMenu'
 import { PresetsDialog, ProjectDialog, SettingsDialog, TerminalDialog } from './components/dialogs'
+import { EmbedPicker } from './components/EmbedPicker'
 import { pushData } from './lib/terminals'
 import { altDigit, matches, SHORTCUTS } from './lib/keys'
 import { cyclePanel, focusPanelByIndex } from './lib/dock'
@@ -25,6 +26,8 @@ export default function App(): JSX.Element {
   const ready = useStore((s) => s.ready)
   const init = useStore((s) => s.init)
   const modal = useStore((s) => s.modal)
+  const paletteOpen = useStore((s) => s.paletteOpen)
+  const quickOpen = useStore((s) => s.quickOpen)
   const sidebarVisible = useStore((s) => s.settings.sidebarVisible)
 
   useEffect(() => {
@@ -46,6 +49,16 @@ export default function App(): JSX.Element {
       offRojo()
     }
   }, [])
+
+  /**
+   * A docked application is a native child window, which Windows paints above
+   * everything Chromium draws — including our own overlays. Anything that has
+   * to appear on top therefore hides every embed while it is open.
+   */
+  useEffect(() => {
+    const covered = modal !== null || paletteOpen || quickOpen
+    window.api.embed.setAllVisible(!covered)
+  }, [modal, paletteOpen, quickOpen])
 
   // Dropping a file anywhere except a terminal would otherwise make the window
   // navigate to it, blanking the app.
@@ -197,6 +210,7 @@ export default function App(): JSX.Element {
       {modal?.kind === 'terminal' && <TerminalDialog terminalId={modal.terminalId} />}
       {modal?.kind === 'settings' && <SettingsDialog />}
       {modal?.kind === 'presets' && <PresetsDialog />}
+      {modal?.kind === 'embed' && <EmbedPicker />}
 
       <CommandPalette />
       <QuickOpen />

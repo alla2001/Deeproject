@@ -425,6 +425,13 @@ export function Sidebar(): JSX.Element {
         <button className="foot-btn" onClick={() => openWatchPanel()} title="Watch a YouTube video">
           ▶ Watch
         </button>
+        <button
+          className="foot-btn"
+          onClick={() => setModal({ kind: 'embed' })}
+          title="Dock a running application into a tab"
+        >
+          ⬚ Dock app
+        </button>
       </div>
       <div className="sidebar-foot">
         <button className="foot-btn" onClick={() => setModal({ kind: 'presets' })}>

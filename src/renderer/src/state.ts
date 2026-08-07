@@ -31,6 +31,7 @@ export type Modal =
   | { kind: 'terminal'; terminalId: string }
   | { kind: 'settings' }
   | { kind: 'presets' }
+  | { kind: 'embed' }
   | null
 
 interface Store {

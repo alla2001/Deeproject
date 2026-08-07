@@ -13,6 +13,8 @@ files:
 asarUnpack:
   - '**/node_modules/@lydell/node-pty/**'
   - '**/node_modules/@lydell/node-pty-*/**'
+  # koffi loads its own .node binary by path, which has to be a real file.
+  - '**/node_modules/koffi/**'
 win:
   target:
     - target: nsis

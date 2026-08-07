@@ -140,6 +140,19 @@ export function openIdeasPanel(): void {
   openAuxPanel('ideas', 'ideas', '💡 ideas', {})
 }
 
+/**
+ * Open a tab for an already-attached native window. The picker attaches first
+ * so a failure is reported there rather than by an empty panel.
+ */
+export function openEmbedPanel(hwnd: number, title: string, exe: string): void {
+  const label = exe ? (exe.split(/[\\/]/).pop() ?? title) : title
+  openAuxPanel(`embed:${hwnd}`, 'embed', `⬚ ${label.replace(/\.exe$/i, '')}`, {
+    hwnd,
+    title,
+    exe
+  })
+}
+
 function fileLabel(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath
 }

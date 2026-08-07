@@ -18,6 +18,7 @@ import { NotionPanel } from './NotionPanel'
 import { DiscordPanel } from './DiscordPanel'
 import { WatchPanel } from './WatchPanel'
 import { IdeasPanel } from './IdeasPanel'
+import { EmbedPanel } from './EmbedPanel'
 
 type PanelComponent = React.FunctionComponent<IDockviewPanelProps>
 
@@ -29,7 +30,8 @@ const components = {
   notion: NotionPanel as unknown as PanelComponent,
   discord: DiscordPanel as unknown as PanelComponent,
   watch: WatchPanel as unknown as PanelComponent,
-  ideas: IdeasPanel as unknown as PanelComponent
+  ideas: IdeasPanel as unknown as PanelComponent,
+  embed: EmbedPanel as unknown as PanelComponent
 }
 
 function Watermark(_props: IWatermarkPanelProps): JSX.Element {
@@ -85,6 +87,10 @@ export function Dock(): JSX.Element {
         // Drop panels whose terminal or project was deleted while we were
         // closed. Panels that belong to no particular project — the ideas and
         // watch tabs — carry no ids and are always kept.
+        //
+        // Embedded-application panels are always dropped: they hold a window
+        // handle from the previous run, which is meaningless now and may since
+        // have been reissued to an unrelated window.
         for (const panel of [...event.api.panels]) {
           const params = (panel.params ?? {}) as Partial<TerminalPanelParams> & {
             projectId?: string
@@ -92,7 +98,7 @@ export function Dock(): JSX.Element {
           const stale =
             (typeof params.terminalId === 'string' && !knownTerminals.has(params.terminalId)) ||
             (typeof params.projectId === 'string' && !knownProjects.has(params.projectId))
-          if (stale) event.api.removePanel(panel)
+          if (stale || panel.id.startsWith('embed:')) event.api.removePanel(panel)
         }
       } catch (err) {
         console.error('[dock] could not restore layout', err)

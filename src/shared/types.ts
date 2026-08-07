@@ -388,6 +388,43 @@ export interface NotionTaskPatch {
   values?: Record<string, string[]>
 }
 
+/** A top-level window on this machine, as offered by the embed picker. */
+export interface EmbedCandidate {
+  /** Win32 HWND, as a plain number. Only valid for this run of the app. */
+  hwnd: number
+  pid: number
+  title: string
+  /** Win32 window class; used to spot shells and UWP frames. */
+  className: string
+  /** Full path of the owning executable, or '' when it can't be read. */
+  exe: string
+  /** Set when this window is known not to survive reparenting. */
+  unsupported: string | null
+}
+
+export interface EmbedState {
+  hwnd: number
+  pid: number
+  title: string
+  exe: string
+  /** False once the window has gone away on its own. */
+  alive: boolean
+}
+
+export interface EmbedAttachResult {
+  ok: boolean
+  state?: EmbedState
+  error?: string
+}
+
+/** Panel rectangle in physical pixels, relative to our window's client area. */
+export interface EmbedBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface PtyAttachResult {
   status: PtyStatus
   runId: string

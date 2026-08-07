@@ -3,6 +3,10 @@ import type {
   AppState,
   DiscordBoard,
   DiscordDetail,
+  EmbedAttachResult,
+  EmbedBounds,
+  EmbedCandidate,
+  EmbedState,
   FileEntry,
   NotionBoard,
   NotionTaskPatch,
@@ -159,6 +163,29 @@ const api = {
       ipcRenderer.invoke('discord:setTags', postId, tagIds),
     setArchived: (postId: string, archived: boolean): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('discord:setArchived', postId, archived)
+  },
+  embed: {
+    available: (): Promise<{ ok: boolean; error: string | null }> =>
+      ipcRenderer.invoke('embed:available'),
+    list: (): Promise<EmbedCandidate[]> => ipcRenderer.invoke('embed:list'),
+    attach: (hwnd: number): Promise<EmbedAttachResult> => ipcRenderer.invoke('embed:attach', hwnd),
+    detach: (hwnd: number): Promise<boolean> => ipcRenderer.invoke('embed:detach', hwnd),
+    states: (): Promise<EmbedState[]> => ipcRenderer.invoke('embed:states'),
+    /** Bounds are physical pixels relative to our window's client area. */
+    setBounds: (hwnd: number, bounds: EmbedBounds): void =>
+      ipcRenderer.send('embed:bounds', hwnd, bounds),
+    setVisible: (hwnd: number, visible: boolean): void =>
+      ipcRenderer.send('embed:visible', hwnd, visible),
+    /** Used to clear the way for modals, which a native child window covers. */
+    setAllVisible: (visible: boolean): void => ipcRenderer.send('embed:allVisible', visible),
+    focus: (hwnd: number): void => ipcRenderer.send('embed:focus', hwnd),
+    /** Hand mouse and keyboard to a docked game; Ctrl+Alt+M takes them back. */
+    captureMouse: (hwnd: number): Promise<boolean> => ipcRenderer.invoke('embed:capture', hwnd),
+    releaseMouse: (): Promise<boolean> => ipcRenderer.invoke('embed:release'),
+    onCaptureChange: (cb: (hwnd: number | null) => void): (() => void) => on('embed:capture', cb),
+    pickExe: (): Promise<string | null> => ipcRenderer.invoke('embed:pickExe'),
+    launch: (exePath: string): Promise<number | null> => ipcRenderer.invoke('embed:launch', exePath),
+    onGone: (cb: (hwnd: number) => void): (() => void) => on('embed:gone', cb)
   },
   dialog: {
     pickFolder: (): Promise<{ path: string; name: string }[]> =>

@@ -82,6 +82,52 @@ and related videos come with it. The view has its own `persist:watch` session, s
 signing in there stays out of the rest of the app. Nothing is downloaded; only
 the URLs you save are stored.
 
+**Dock an app.** The ⬚ button in the sidebar footer (or *Dock an application* in
+the palette) lists every window open on this machine and pulls the one you pick
+into a tab, beside your terminals. **Launch an app…** starts an executable and
+docks whatever window it opens. The application keeps running in its own
+process; closing the tab hands it back to the desktop rather than closing it.
+
+This is window reparenting, not a screen capture: the app's own HWND is made a
+child of Deeproject's window and moved to the panel's rectangle. Two things
+follow from that, and neither can be engineered away:
+
+- **A docked app covers Deeproject's own UI.** A native child window composites
+  above everything Chromium paints, so modals, the command palette and quick
+  open hide every embed for as long as they are on screen.
+- **Some windows will not go.** Store apps (Settings, Calculator) run inside a
+  shared `ApplicationFrameHost` window and are listed as *not dockable*. Apps
+  with several top-level windows — Studio's dialogs, an editor's find window —
+  only dock the main one; the rest stay loose on the desktop. Classic Win32
+  apps behave best, which includes Roblox Studio.
+
+Nothing is docked across a restart: a window handle only means anything while
+that window exists, and Windows reissues handles, so the tabs are dropped on
+load rather than pointed at whatever inherited the number.
+
+**Docking a game.** Games want the pointer, so a docked one needs it handed over
+deliberately: **Capture mouse** in the panel's bar gives the game the mouse and
+the keyboard and fences the cursor to the panel, so mouse-look doesn't drag the
+pointer onto the sidebar mid-turn. **`Ctrl+Alt+M` gives it back.**
+
+That release is a system-wide hotkey rather than an in-app shortcut, because
+while a game holds the pointer and the keyboard nothing Deeproject draws can be
+clicked. The cursor is also freed automatically if you alt-tab away, if the
+panel is hidden, if the tab is closed, or if the game exits. Only a clip that
+Deeproject set is ever released — a game running *outside* the app keeps its
+own, which is why the app never clears the confinement blindly on losing focus.
+
+The panel keeps a thin bar above the game for that button. Everything else in
+the panel would be painted over: the bar exists because it is the one strip the
+docked window is never given.
+
+Two limits are worth knowing. A game in **exclusive fullscreen** cannot be
+docked at all — it owns the display mode, not a window; run it borderless or
+windowed. And because a docked window is no longer top-level,
+`GetForegroundWindow` returns Deeproject rather than the game, so a title that
+pauses or drops audio "when it loses focus" may do so while docked. Nothing can
+be done about that from the outside.
+
 **Presets.** Settings → Presets edits the launch list — label, emoji, command,
 colour, and whether it is pinned to project rows. The built-in Claude presets can
 be edited but not deleted.
@@ -194,6 +240,7 @@ generated `--mcp-config` file from its own data folder.
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | next / previous tab |
 | `Alt+1` … `Alt+9` | jump to tab N |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | copy / paste |
+| `Ctrl+Alt+M` | release a docked game's mouse (system-wide) |
 
 `Ctrl+C` copies when text is selected and sends an interrupt otherwise, so it
 behaves the way it does in Windows Terminal.
@@ -261,6 +308,14 @@ process and rendered by xterm.js. A few details worth knowing:
   credited with hundreds of megabytes of someone else's process tree (on this
   machine `Registry` and `Secure System` both claim `System` as a parent despite
   predating it).
+- **A docked app is released before the window closes.** Windows destroys child
+  windows along with their parent, so anything still reparented into Deeproject
+  would be destroyed with it — quitting the app would close the user's Studio.
+  Everything is therefore detached in the window's own `close` handler, which
+  runs while the window still exists; `before-quit` is too late.
+- **Reparenting is done with koffi rather than a compiled addon.** It ships
+  prebuilt N-API binaries, so the user32 calls cost nothing at install time and
+  `npm install` still needs no C++ toolchain.
 - **Sampling is one process, not one per poll.** A single long-lived PowerShell
   emits a JSON snapshot on an interval; the main process diffs consecutive
   snapshots to derive CPU, since Windows only exposes cumulative tick counters.
@@ -278,6 +333,8 @@ on unload, and every 15 seconds. The Notion token is stored separately in
 
 ```
 node scripts/pty-smoke.cjs                              # ConPTY binding loads
+node scripts/embed-smoke.cjs                            # list dockable windows
+node scripts/embed-attach-test.cjs <pid> "<title>"      # dock/capture/detach round trip
 node scripts/seed-test-profile.cjs <dir>                # profile with a 2x2 terminal grid
 node scripts/seed-feature-profile.cjs <dir> <project>   # editor + files + rojo layout
 powershell -File scripts/screenshot.ps1 -ProcId <pid>   # capture a window to PNG

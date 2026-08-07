@@ -158,6 +158,12 @@ export function CommandPalette(): JSX.Element | null {
       },
       { id: 'ideas', label: 'Game ideas', icon: '💡', run: () => openIdeasPanel() },
       { id: 'watch', label: 'Watch a YouTube video', icon: '▶', run: () => openWatchPanel() },
+      {
+        id: 'embed',
+        label: 'Dock an application into a tab',
+        icon: '⬚',
+        run: () => setModal({ kind: 'embed' })
+      },
       { id: 'add-project', label: 'Add project folder', icon: '➕', run: () => void addProjects() },
       { id: 'presets', label: 'Edit launch presets', icon: '⚡', run: () => setModal({ kind: 'presets' }) },
       { id: 'settings', label: 'Open settings', icon: '⚙', run: () => setModal({ kind: 'settings' }) }

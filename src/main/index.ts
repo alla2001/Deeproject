@@ -1,7 +1,8 @@
-import { app, BrowserWindow, net, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, net, protocol, session, shell } from 'electron'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpc } from './ipc'
+import { embedManager } from './embed'
 import { ptyManager } from './pty'
 import { rojoManager } from './rojo'
 import { statsMonitor } from './stats'
@@ -87,6 +88,10 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
+  // Alt-tabbing away from a docked game has to free the cursor too, or it stays
+  // fenced into a window that is no longer in front of the user.
+  mainWindow.on('blur', () => embedManager.releaseMouse())
+
   // Remember size/position. `getNormalBounds` reports the restored geometry, so
   // maximising then quitting doesn't save a full-screen rectangle as the
   // un-maximised size.
@@ -139,6 +144,11 @@ function createWindow(): void {
   mainWindow.on('close', () => {
     persistBounds()
     flushAll()
+    // Windows destroys child windows along with their parent, so anything still
+    // docked has to be handed back before this window goes away — otherwise
+    // closing Deeproject would close the user's Studio or editor with it. This
+    // must happen here rather than in `before-quit`, which runs too late.
+    embedManager.detachAll()
   })
 
   mainWindow.on('closed', () => {
@@ -246,6 +256,19 @@ if (!gotLock) {
     await startMcpServer()
     createWindow()
 
+    // The only way out of a captured mouse. It has to be a system-wide hotkey:
+    // while a game holds the pointer and the keyboard, nothing we render is
+    // reachable, so an in-app shortcut would never be seen.
+    if (!globalShortcut.register('Control+Alt+M', () => {
+      embedManager.releaseMouse()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.focus()
+        mainWindow.webContents.send('embed:capture', null)
+      }
+    })) {
+      safeLog('[embed] could not register the mouse-release hotkey (Ctrl+Alt+M)')
+    }
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
@@ -257,6 +280,9 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     flushAll()
+    globalShortcut.unregisterAll()
+    // Belt and braces: the window's own close handler normally gets there first.
+    embedManager.detachAll()
     ptyManager.disposeAll()
     rojoManager.disposeAll()
     statsMonitor.dispose()

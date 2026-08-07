@@ -442,6 +442,11 @@ export function registerIpc(): void {
 
   // ---- embedded windows ----------------------------------------------------
   embedManager.on('gone', (hwnd: number) => broadcast('embed:gone', hwnd))
+  // An app that kept pulling itself back out to the desktop; the panel is now
+  // empty and has to say why rather than sit there blank.
+  embedManager.on('escaped', (hwnd: number, title: string) =>
+    broadcast('embed:escaped', { hwnd, title })
+  )
 
   ipcMain.handle('embed:available', () => ({
     ok: embedManager.available(),

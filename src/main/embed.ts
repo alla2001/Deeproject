@@ -59,6 +59,8 @@ const SW_MAXIMIZE = 3
 const SW_SHOWNA = 8
 const SW_RESTORE = 9
 
+const GA_PARENT = 1
+
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 /** Window classes that are the shell itself; reparenting one wrecks the desktop. */
@@ -103,6 +105,10 @@ function load(): boolean {
       ),
       SetParent: u.func('int64_t __stdcall SetParent(int64_t child, int64_t parent)'),
       GetParent: u.func('int64_t __stdcall GetParent(int64_t hWnd)'),
+      // GetParent reports NULL for anything lacking WS_CHILD, which is useless
+      // for checking whether a reparent landed; GetAncestor answers regardless
+      // of style, returning the desktop for a window that is genuinely loose.
+      GetAncestor: u.func('int64_t __stdcall GetAncestor(int64_t hWnd, uint32_t flags)'),
       GetWindowRect: u.func('bool __stdcall GetWindowRect(int64_t hWnd, void *rect)'),
       SetWindowPos: u.func(
         'bool __stdcall SetWindowPos(int64_t hWnd, int64_t after, int x, int y, int cx, int cy, uint32_t flags)'
@@ -121,6 +127,8 @@ function load(): boolean {
     }
     kernel32 = {
       GetCurrentThreadId: k.func('uint32_t __stdcall GetCurrentThreadId()'),
+      GetLastError: k.func('uint32_t __stdcall GetLastError()'),
+      SetLastError: k.func('void __stdcall SetLastError(uint32_t code)'),
       OpenProcess: k.func('int64_t __stdcall OpenProcess(uint32_t a, bool i, uint32_t pid)'),
       QueryFullProcessImageNameW: k.func(
         'bool __stdcall QueryFullProcessImageNameW(int64_t h, uint32_t f, void *buf, void *size)'
@@ -192,6 +200,24 @@ function setBits(value: number, mask: number): number {
   return (value | mask) >>> 0
 }
 
+/**
+ * Turn a SetParent failure into something the user can act on. The codes worth
+ * naming are the ones with a fix; anything else is reported verbatim so a bug
+ * report carries the number.
+ */
+function reparentError(code: number): string {
+  switch (code) {
+    case 5: // ERROR_ACCESS_DENIED
+      return 'Windows refused to dock that app because it runs with higher privileges than Deeproject. Restart Deeproject as administrator, or start that app without elevation.'
+    case 1400: // ERROR_INVALID_WINDOW_HANDLE
+      return 'That window closed while it was being docked.'
+    case 0:
+      return 'That app moved its window back out on its own; it cannot be docked.'
+    default:
+      return `Windows refused to dock that window (error ${code}).`
+  }
+}
+
 function enumerateHwnds(): number[] {
   const found: number[] = []
   const cb = koffiLib!.register(
@@ -218,7 +244,33 @@ interface Saved {
   pid: number
   title: string
   exe: string
+  /** The panel window this was docked into, so drift back out can be undone. */
+  parent: number
+  /** Where the panel last asked it to sit, replayed after a forced re-attach. */
+  bounds: EmbedBounds | null
+  /** How many times the app has pulled itself back out; see `startWatchdog`. */
+  escapes: number
+  /** Consecutive watchdog ticks the window has stayed put. */
+  settled: number
 }
+
+/**
+ * How many times an application may undo the reparent before we stop fighting
+ * it. Toolkits that keep their own idea of the window hierarchy — Qt is the one
+ * that shows up in practice — reconcile it after a style change and put the
+ * window back on the desktop. Re-asserting wins against a one-off reconcile;
+ * against an app that does it continuously it would only produce a flicker, so
+ * past this count the dock is abandoned and reported.
+ */
+const MAX_ESCAPES = 4
+
+/**
+ * Watchdog ticks — seconds — of staying put that earn an application a clean
+ * slate. Without this, one that jumps out on some occasional event of its own,
+ * such as opening a file, would eventually exhaust its allowance over a long
+ * session despite behaving the rest of the time.
+ */
+const SETTLED_TICKS = 30
 
 class EmbedManager extends EventEmitter {
   private attached = new Map<number, Saved>()
@@ -298,36 +350,28 @@ class EmbedManager extends EventEmitter {
       wasMaximized,
       pid,
       title: windowText(hwnd),
-      exe: exeForPid(pid)
+      exe: exeForPid(pid),
+      parent: parentHwnd,
+      bounds: null,
+      escapes: 0,
+      settled: 0
     }
 
     try {
-      const style = setBits(
-        clearBits(
-          saved.style,
-          WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU
-        ),
-        WS_CHILD
-      )
-      user32!.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
-      // Keeping WS_EX_APPWINDOW would leave a ghost entry on the taskbar.
-      user32!.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, clearBits(saved.exStyle, WS_EX_APPWINDOW))
-
-      // Cross-process SetParent attaches the two threads' input queues, so a
-      // hang in the embedded app can stall our UI thread too. Nothing can be
-      // done about that beyond detaching promptly when it goes wrong.
-      user32!.SetParent(hwnd, parentHwnd)
-      user32!.SetWindowPos(
-        hwnd,
-        0,
-        0,
-        0,
-        0,
-        0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW
-      )
+      const code = this.reparent(hwnd, saved)
+      if (code !== null) {
+        this.restoreWindow(hwnd, saved)
+        return { ok: false, error: reparentError(code) }
+      }
+      // A toolkit that recreates its window on a style change destroys this
+      // handle behind our back, and every later call would silently no-op
+      // against a dead HWND.
+      if (!user32!.IsWindow(hwnd)) {
+        return { ok: false, error: 'That application replaced its window instead of docking it.' }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      this.restoreWindow(hwnd, saved)
       return { ok: false, error: `Could not dock that window: ${message}` }
     }
 
@@ -337,6 +381,63 @@ class EmbedManager extends EventEmitter {
       ok: true,
       state: { hwnd, pid, title: saved.title, exe: saved.exe, alive: true }
     }
+  }
+
+  /**
+   * Make the window a child of the panel and dress it as one.
+   *
+   * Returns null on success, or a Win32 error code describing why the window is
+   * not our child afterwards — 0 meaning the call reported success and the
+   * window still ended up somewhere else.
+   *
+   * The reparent goes first and the styles second. The reverse order asks
+   * Windows to hold a WS_CHILD window whose parent is still the desktop, which
+   * is not a legal configuration; toolkits that rebuild their native window in
+   * response to WM_STYLECHANGED can react to that intermediate state by
+   * throwing the HWND away.
+   *
+   * Cross-process SetParent attaches the two threads' input queues, so a hang
+   * in the embedded app can stall our UI thread too. Nothing can be done about
+   * that beyond detaching promptly when it goes wrong.
+   */
+  private reparent(hwnd: number, saved: Saved): number | null {
+    // Cleared first, so a nonzero code afterwards genuinely belongs to this call.
+    kernel32!.SetLastError(0)
+    user32!.SetParent(hwnd, saved.parent)
+    const code = Number(kernel32!.GetLastError())
+
+    const style = setBits(
+      clearBits(
+        saved.style,
+        WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU
+      ),
+      WS_CHILD
+    )
+    user32!.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
+    // Keeping WS_EX_APPWINDOW would leave a ghost entry on the taskbar.
+    user32!.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, clearBits(saved.exStyle, WS_EX_APPWINDOW))
+
+    user32!.SetWindowPos(
+      hwnd,
+      0,
+      0,
+      0,
+      0,
+      0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW
+    )
+
+    // SetParent reports failure only through its return value, and a refusal
+    // used to leave the window untouched on the desktop while we drew a panel
+    // claiming it was docked. Ask Windows where the window ended up rather than
+    // assuming — and ask only now, because until WS_CHILD is set there is
+    // nothing to see.
+    return this.parentOf(hwnd) === saved.parent ? null : code
+  }
+
+  /** The real parent, which for a loose window is the desktop rather than 0. */
+  private parentOf(hwnd: number): number {
+    return Number(user32!.GetAncestor(hwnd, GA_PARENT))
   }
 
   /**
@@ -350,8 +451,16 @@ class EmbedManager extends EventEmitter {
     this.attached.delete(hwnd)
     if (this.attached.size === 0) this.stopWatchdog()
     if (!saved || !load()) return false
-    if (!user32!.IsWindow(hwnd)) return false
+    return this.restoreWindow(hwnd, saved)
+  }
 
+  /**
+   * Put a window back the way we found it. Used both when the user undocks and
+   * when an attach gives up part-way through, so that a refused dock leaves no
+   * trace on the user's application.
+   */
+  private restoreWindow(hwnd: number, saved: Saved): boolean {
+    if (!user32!.IsWindow(hwnd)) return false
     try {
       user32!.SetParent(hwnd, 0)
       user32!.SetWindowLongPtrW(hwnd, GWL_STYLE, saved.style)
@@ -371,7 +480,7 @@ class EmbedManager extends EventEmitter {
       user32!.ShowWindow(hwnd, saved.wasMaximized ? SW_MAXIMIZE : SW_RESTORE)
       return true
     } catch (err) {
-      console.error('[embed] detach failed', err)
+      console.error('[embed] restore failed', err)
       return false
     }
   }
@@ -386,8 +495,13 @@ class EmbedManager extends EventEmitter {
   }
 
   setBounds(hwnd: number, bounds: EmbedBounds): void {
-    if (!load() || !this.attached.has(hwnd)) return
+    if (!load()) return
+    const saved = this.attached.get(hwnd)
+    if (!saved) return
     if (!user32!.IsWindow(hwnd)) return
+    // Remembered so a window that escapes and gets pulled back in resumes the
+    // panel's geometry instead of whatever size it gave itself outside.
+    saved.bounds = bounds
 
     const width = Math.round(bounds.width)
     const height = Math.round(bounds.height)
@@ -581,16 +695,52 @@ class EmbedManager extends EventEmitter {
     }))
   }
 
-  /** Notice an app that was closed from its own UI rather than from ours. */
+  /**
+   * Notice an app that left without being undocked — either because it was
+   * closed from its own UI, or because it walked back out to the desktop.
+   *
+   * The second case is not hypothetical: a toolkit that keeps its own record of
+   * the window hierarchy reconciles it after our style change and calls
+   * SetParent(NULL) on itself, which leaves the application floating free while
+   * the panel still claims to hold it. Putting it straight back wins when the
+   * reconcile is a one-off. When it is not, the dock is given up rather than
+   * fought over, since the alternative is a window flickering in and out of the
+   * panel once a second.
+   */
   private startWatchdog(): void {
     if (this.watchdog) return
     this.watchdog = setInterval(() => {
-      for (const hwnd of [...this.attached.keys()]) {
-        if (user32!.IsWindow(hwnd)) continue
-        // A game that crashed while holding the mouse must not keep holding it.
-        if (this.captured === hwnd) this.releaseMouse()
-        this.attached.delete(hwnd)
-        this.emit('gone', hwnd)
+      for (const [hwnd, saved] of [...this.attached.entries()]) {
+        if (!user32!.IsWindow(hwnd)) {
+          // A game that crashed while holding the mouse must not keep holding it.
+          if (this.captured === hwnd) this.releaseMouse()
+          this.attached.delete(hwnd)
+          this.emit('gone', hwnd)
+          continue
+        }
+        if (this.parentOf(hwnd) === saved.parent) {
+          saved.settled += 1
+          if (saved.settled >= SETTLED_TICKS) {
+            saved.settled = 0
+            saved.escapes = 0
+          }
+          continue
+        }
+
+        saved.settled = 0
+        saved.escapes += 1
+        if (saved.escapes > MAX_ESCAPES) {
+          this.detach(hwnd)
+          this.emit('escaped', hwnd, saved.title)
+          continue
+        }
+        try {
+          if (this.reparent(hwnd, saved) === null && saved.bounds) {
+            this.setBounds(hwnd, saved.bounds)
+          }
+        } catch (err) {
+          console.error('[embed] re-attach failed', err)
+        }
       }
       if (this.attached.size === 0) this.stopWatchdog()
     }, 1000)

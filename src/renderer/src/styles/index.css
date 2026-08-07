@@ -2705,6 +2705,12 @@ kbd {
   line-height: 1;
 }
 
+/* The explanation for a dock that gave up needs a measure, not the panel width. */
+.embed-empty .embed-note {
+  max-width: 46ch;
+  margin: 0;
+}
+
 .embed-note {
   color: var(--text-faint);
   font-size: 12px;

@@ -21,6 +21,7 @@ export function EmbedPanel(props: IDockviewPanelProps<EmbedPanelParams>): JSX.El
   const { hwnd, title, exe } = props.params
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [gone, setGone] = useState(false)
+  const [escaped, setEscaped] = useState(false)
   const [captured, setCaptured] = useState(false)
 
   useEffect(() => {
@@ -63,6 +64,9 @@ export function EmbedPanel(props: IDockviewPanelProps<EmbedPanelParams>): JSX.El
     const offGone = window.api.embed.onGone((dead) => {
       if (dead === hwnd) setGone(true)
     })
+    const offEscaped = window.api.embed.onEscaped((e) => {
+      if (e.hwnd === hwnd) setEscaped(true)
+    })
     // Capture can end without us asking — the global hotkey, alt-tabbing away,
     // or the game exiting — so the badge follows main rather than local state.
     const offCapture = window.api.embed.onCaptureChange((held) => setCaptured(held === hwnd))
@@ -77,6 +81,7 @@ export function EmbedPanel(props: IDockviewPanelProps<EmbedPanelParams>): JSX.El
       offVisible.dispose()
       offActive.dispose()
       offGone()
+      offEscaped()
       offCapture()
       // Closing the tab hands the application back to the desktop rather than
       // killing it — it was never ours to close.
@@ -110,12 +115,24 @@ export function EmbedPanel(props: IDockviewPanelProps<EmbedPanelParams>): JSX.El
       </div>
 
       <div className="embed-stage" ref={hostRef}>
-        {gone ? (
+        {gone || escaped ? (
           <div className="embed-empty">
             <div className="embed-mark">⬚</div>
-            <p>
-              <strong>{title}</strong> closed.
-            </p>
+            {gone ? (
+              <p>
+                <strong>{title}</strong> closed.
+              </p>
+            ) : (
+              <>
+                <p>
+                  <strong>{title}</strong> would not stay docked.
+                </p>
+                <p className="embed-note">
+                  It kept moving itself back to the desktop, so it has been left there. Some
+                  applications manage their own window and cannot be hosted inside another one.
+                </p>
+              </>
+            )}
             <button className="btn btn--tiny" onClick={() => closePanel(props.api.id)}>
               Close tab
             </button>

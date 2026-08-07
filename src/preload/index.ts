@@ -219,7 +219,10 @@ const api = {
     onCaptureChange: (cb: (hwnd: number | null) => void): (() => void) => on('embed:capture', cb),
     pickExe: (): Promise<string | null> => ipcRenderer.invoke('embed:pickExe'),
     launch: (exePath: string): Promise<number | null> => ipcRenderer.invoke('embed:launch', exePath),
-    onGone: (cb: (hwnd: number) => void): (() => void) => on('embed:gone', cb)
+    onGone: (cb: (hwnd: number) => void): (() => void) => on('embed:gone', cb),
+    /** The app refused to stay docked and has been handed back to the desktop. */
+    onEscaped: (cb: (e: { hwnd: number; title: string }) => void): (() => void) =>
+      on('embed:escaped', cb)
   },
   dialog: {
     pickFolder: (): Promise<{ path: string; name: string }[]> =>

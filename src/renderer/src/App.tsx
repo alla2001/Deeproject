@@ -1,11 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { flushState, useStore } from './state'
 import { Dock } from './components/Dock'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { CommandPalette } from './components/CommandPalette'
 import { QuickOpen } from './components/QuickOpen'
-import { ContextMenuHost } from './components/ContextMenu'
+import { ContextMenuHost, useMenu } from './components/ContextMenu'
 import { PresetsDialog, ProjectDialog, SettingsDialog, TerminalDialog } from './components/dialogs'
 import { EmbedPicker } from './components/EmbedPicker'
 import { TransferDialog } from './components/TransferDialog'
@@ -29,7 +29,10 @@ export default function App(): JSX.Element {
   const modal = useStore((s) => s.modal)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const quickOpen = useStore((s) => s.quickOpen)
+  // Right-click menus are plain DOM too, so a docked window paints over them.
+  const contextMenuOpen = useMenu((s) => s.items !== null)
   const sidebarVisible = useStore((s) => s.settings.sidebarVisible)
+  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
     void init()
@@ -57,22 +60,35 @@ export default function App(): JSX.Element {
    * to appear on top therefore hides every embed while it is open.
    */
   useEffect(() => {
-    const covered = modal !== null || paletteOpen || quickOpen
+    const covered = modal !== null || paletteOpen || quickOpen || contextMenuOpen || dragging
     window.api.embed.setAllVisible(!covered)
-  }, [modal, paletteOpen, quickOpen])
+  }, [modal, paletteOpen, quickOpen, contextMenuOpen, dragging])
 
   // Dropping a file anywhere except a terminal would otherwise make the window
   // navigate to it, blanking the app.
+  //
+  // Dragging is also tracked for the embeds' sake: dockview draws its drop
+  // targets as ordinary elements, so while a tab is in flight they would be
+  // hidden underneath any docked application and there would be no way to see
+  // where the panel is about to land.
   useEffect(() => {
     const swallow = (e: DragEvent): void => {
       if (!e.dataTransfer?.types.includes('Files')) return
       e.preventDefault()
     }
+    const begin = (): void => setDragging(true)
+    const end = (): void => setDragging(false)
     window.addEventListener('dragover', swallow)
     window.addEventListener('drop', swallow)
+    window.addEventListener('dragstart', begin, true)
+    window.addEventListener('dragend', end, true)
+    window.addEventListener('drop', end, true)
     return () => {
       window.removeEventListener('dragover', swallow)
       window.removeEventListener('drop', swallow)
+      window.removeEventListener('dragstart', begin, true)
+      window.removeEventListener('dragend', end, true)
+      window.removeEventListener('drop', end, true)
     }
   }, [])
 

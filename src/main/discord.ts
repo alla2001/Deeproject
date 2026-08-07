@@ -369,15 +369,15 @@ export async function getPost(
   }
 }
 
-/** Retag a post using tag names rather than Discord's opaque ids. */
-export async function setPostTagsByName(
-  channelRef: string,
-  postId: string,
+/**
+ * Resolve tag names to Discord's opaque ids, refusing the whole set if any name
+ * is unrecognised. Partially applying tags would leave a report looking
+ * classified when it is not.
+ */
+async function resolveTagNames(
+  channelId: string,
   tagNames: string[]
-): Promise<{ ok: boolean; error?: string }> {
-  const channelId = extractChannelId(channelRef)
-  if (!channelId) return { ok: false, error: 'This project has no valid forum channel linked.' }
-
+): Promise<{ ok: true; ids: string[]; all: DiscordTag[] } | { ok: false; error: string }> {
   const channel = await request<any>('GET', `/channels/${channelId}`)
   if (!channel.ok) return { ok: false, error: channel.error }
   const tags = readTags(channel.data)
@@ -386,8 +386,9 @@ export async function setPostTagsByName(
   const unknown: string[] = []
   for (const name of tagNames) {
     const match = tags.find((t) => t.name.toLowerCase() === name.trim().toLowerCase())
-    if (match) ids.push(match.id)
-    else unknown.push(name)
+    if (match) {
+      if (!ids.includes(match.id)) ids.push(match.id)
+    } else unknown.push(name)
   }
   if (unknown.length > 0) {
     return {
@@ -395,7 +396,158 @@ export async function setPostTagsByName(
       error: `No such tag: ${unknown.join(', ')}. Available: ${tags.map((t) => t.name).join(', ')}`
     }
   }
-  return setPostTags(postId, ids)
+  return { ok: true, ids, all: tags }
+}
+
+/** Retag a post using tag names rather than Discord's opaque ids. */
+export async function setPostTagsByName(
+  channelRef: string,
+  postId: string,
+  tagNames: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  const channelId = extractChannelId(channelRef)
+  if (!channelId) return { ok: false, error: 'This project has no valid forum channel linked.' }
+  const resolved = await resolveTagNames(channelId, tagNames)
+  if (!resolved.ok) return { ok: false, error: resolved.error }
+  return setPostTags(postId, resolved.ids)
+}
+
+/**
+ * Adjust a post's tags without having to restate the ones already on it, which
+ * is what "tag this fixed" actually means and what a full replacement gets
+ * wrong. Returns the resulting tag names.
+ */
+export async function amendPostTags(
+  channelRef: string,
+  postId: string,
+  add: string[],
+  remove: string[]
+): Promise<{ ok: boolean; error?: string; tags?: string[] }> {
+  const channelId = extractChannelId(channelRef)
+  if (!channelId) return { ok: false, error: 'This project has no valid forum channel linked.' }
+
+  const thread = await request<any>('GET', `/channels/${postId}`)
+  if (!thread.ok) return { ok: false, error: thread.error }
+  const current: string[] = (thread.data?.applied_tags ?? []).map(String)
+
+  const resolved = await resolveTagNames(channelId, [...add, ...remove])
+  if (!resolved.ok) return { ok: false, error: resolved.error }
+
+  const idOf = (name: string): string | undefined =>
+    resolved.all.find((t) => t.name.toLowerCase() === name.trim().toLowerCase())?.id
+  const removeIds = new Set(remove.map(idOf).filter(Boolean) as string[])
+  const next = current.filter((id) => !removeIds.has(id))
+  for (const name of add) {
+    const id = idOf(name)
+    if (id && !next.includes(id)) next.push(id)
+  }
+
+  const result = await setPostTags(postId, next)
+  if (!result.ok) return result
+  return {
+    ok: true,
+    tags: next.map((id) => resolved.all.find((t) => t.id === id)?.name ?? id)
+  }
+}
+
+/** Discord refuses a message body longer than this. */
+const MESSAGE_LIMIT = 2000
+
+/**
+ * Open a new report in the forum.
+ *
+ * A forum post is a thread whose opening message is created in the same call,
+ * so title, body and tags all land together or not at all.
+ */
+export async function createPost(
+  channelRef: string,
+  draft: { title: string; body: string; tags?: string[] }
+): Promise<{ ok: boolean; error?: string; id?: string; url?: string }> {
+  const channelId = extractChannelId(channelRef)
+  if (!channelId) return { ok: false, error: 'This project has no valid forum channel linked.' }
+
+  const title = draft.title.trim()
+  if (!title) return { ok: false, error: 'A title is required.' }
+  const body = draft.body.trim()
+  if (!body) return { ok: false, error: 'A body is required; a report with no detail helps nobody.' }
+  if (body.length > MESSAGE_LIMIT) {
+    return {
+      ok: false,
+      error: `Discord caps a post at ${MESSAGE_LIMIT} characters; this one is ${body.length}. Shorten it, or put the detail in a reply.`
+    }
+  }
+
+  let tagIds: string[] = []
+  if (draft.tags && draft.tags.length > 0) {
+    const resolved = await resolveTagNames(channelId, draft.tags)
+    if (!resolved.ok) return { ok: false, error: resolved.error }
+    tagIds = resolved.ids
+  }
+
+  const result = await request<any>('POST', `/channels/${channelId}/threads`, {
+    name: title.slice(0, 100),
+    applied_tags: tagIds,
+    message: { content: body }
+  })
+  if (!result.ok) {
+    return {
+      ok: false,
+      error:
+        result.status === 403
+          ? 'The bot needs Send Messages and Create Posts in that forum to open a report.'
+          : result.error
+    }
+  }
+
+  const id = String(result.data?.id ?? '')
+  const guildId = result.data?.guild_id
+  return {
+    ok: true,
+    id,
+    url: guildId ? `https://discord.com/channels/${guildId}/${id}` : undefined
+  }
+}
+
+/** Add a message to an existing report. */
+export async function replyToPost(
+  postId: string,
+  content: string
+): Promise<{ ok: boolean; error?: string }> {
+  const text = content.trim()
+  if (!text) return { ok: false, error: 'A reply needs some text.' }
+  if (text.length > MESSAGE_LIMIT) {
+    return {
+      ok: false,
+      error: `Discord caps a message at ${MESSAGE_LIMIT} characters; this one is ${text.length}.`
+    }
+  }
+  const result = await request('POST', `/channels/${postId}/messages`, { content: text })
+  if (result.ok) return { ok: true }
+  return {
+    ok: false,
+    error:
+      result.status === 403
+        ? 'The bot needs Send Messages in that forum to reply.'
+        : result.error
+  }
+}
+
+/** Rename a report. Needs Manage Threads unless the bot opened it. */
+export async function setPostTitle(
+  postId: string,
+  title: string
+): Promise<{ ok: boolean; error?: string }> {
+  const name = title.trim()
+  if (!name) return { ok: false, error: 'A title is required.' }
+  const result = await request('PATCH', `/channels/${postId}`, { name: name.slice(0, 100) })
+  if (result.ok) return { ok: true }
+  return {
+    ok: false,
+    error:
+      result.status === 403
+        ? 'The bot needs the Manage Threads permission to rename posts.'
+        : result.error
+  }
 }
 
 /** Replace a post's tags. Needs Manage Threads on the bot. */

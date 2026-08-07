@@ -442,6 +442,19 @@ export interface NotionTaskPatch {
   status?: string
   /** Property name -> option names. An empty array clears the property. */
   values?: Record<string, string[]>
+  /**
+   * Text added to the end of the task's page as new blocks. Never replaces what
+   * is already there: a patch that could silently drop someone's write-up is
+   * not something to hand an agent.
+   */
+  appendBody?: string
+}
+
+/** A task to create. Same fields as a patch, plus a title that is required. */
+export interface NotionTaskDraft extends Omit<NotionTaskPatch, 'appendBody'> {
+  title: string
+  /** Written under the new task as its page content. */
+  body?: string
 }
 
 /** A top-level window on this machine, as offered by the embed picker. */

@@ -6,6 +6,7 @@ import type {
   NotionField,
   NotionOption,
   NotionTask,
+  NotionTaskDraft,
   NotionTaskPatch
 } from '@shared/types'
 
@@ -279,9 +280,206 @@ function blockToTask(block: any): NotionTask {
   }
 }
 
+// ---- writing ---------------------------------------------------------------
+
+/** Notion rejects any single rich-text run longer than this. */
+const RICH_TEXT_LIMIT = 2000
+/** And refuses more than this many blocks in one call. */
+const BLOCK_LIMIT = 100
+
+/** One string as rich text, split into runs Notion will accept. */
+function richText(content: string): any[] {
+  const runs: any[] = []
+  for (let i = 0; i < content.length; i += RICH_TEXT_LIMIT) {
+    runs.push({ type: 'text', text: { content: content.slice(i, i + RICH_TEXT_LIMIT) } })
+  }
+  return runs.length > 0 ? runs : [{ type: 'text', text: { content: '' } }]
+}
+
+/**
+ * Turn plain text into Notion blocks.
+ *
+ * Agents write in markdown whether or not they are asked to, so the handful of
+ * constructs they actually reach for — headings, bullets, numbered steps, code
+ * fences — are recognised and everything else becomes a paragraph. This is
+ * deliberately not a markdown parser: an unrecognised line surviving as its own
+ * text is a better failure than a half-implemented one mangling it.
+ */
+function blocksFromText(text: string): any[] {
+  const blocks: any[] = []
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  let paragraph: string[] = []
+  let fence: { lang: string; lines: string[] } | null = null
+
+  const flush = (): void => {
+    if (paragraph.length === 0) return
+    blocks.push({
+      object: 'block',
+      type: 'paragraph',
+      paragraph: { rich_text: richText(paragraph.join('\n')) }
+    })
+    paragraph = []
+  }
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^\s*```(\w*)\s*$/)
+    if (fenceMatch) {
+      if (fence) {
+        blocks.push({
+          object: 'block',
+          type: 'code',
+          code: {
+            language: fence.lang || 'plain text',
+            rich_text: richText(fence.lines.join('\n'))
+          }
+        })
+        fence = null
+      } else {
+        flush()
+        fence = { lang: fenceMatch[1].toLowerCase(), lines: [] }
+      }
+      continue
+    }
+    if (fence) {
+      fence.lines.push(line)
+      continue
+    }
+
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.*)$/)
+    if (heading) {
+      flush()
+      const level = Math.min(3, heading[1].length)
+      const type = `heading_${level}`
+      blocks.push({ object: 'block', type, [type]: { rich_text: richText(heading[2]) } })
+      continue
+    }
+
+    const bullet = line.match(/^\s*[-*+]\s+(.*)$/)
+    if (bullet) {
+      flush()
+      blocks.push({
+        object: 'block',
+        type: 'bulleted_list_item',
+        bulleted_list_item: { rich_text: richText(bullet[1]) }
+      })
+      continue
+    }
+
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/)
+    if (numbered) {
+      flush()
+      blocks.push({
+        object: 'block',
+        type: 'numbered_list_item',
+        numbered_list_item: { rich_text: richText(numbered[1]) }
+      })
+      continue
+    }
+
+    paragraph.push(line)
+  }
+
+  // An unterminated fence is still content; keep it rather than dropping it.
+  if (fence) {
+    blocks.push({
+      object: 'block',
+      type: 'code',
+      code: { language: fence.lang || 'plain text', rich_text: richText(fence.lines.join('\n')) }
+    })
+  }
+  flush()
+  return blocks
+}
+
+/** Append blocks to a page or block, in batches Notion will accept. */
+async function appendBlocks(
+  parentId: string,
+  blocks: any[]
+): Promise<{ ok: boolean; error?: string }> {
+  for (let i = 0; i < blocks.length; i += BLOCK_LIMIT) {
+    const result = await request('PATCH', `/blocks/${parentId}/children`, {
+      children: blocks.slice(i, i + BLOCK_LIMIT)
+    })
+    if (!result.ok) return { ok: false, error: result.error.message }
+  }
+  return { ok: true }
+}
+
+/**
+ * Map a patch onto Notion property values for one database.
+ *
+ * Shared by create and update so a task can be born with its priority, type and
+ * platform already set, rather than created bare and then corrected.
+ */
+function buildProperties(shape: DatabaseShape, patch: NotionTaskPatch): Record<string, unknown> {
+  const properties: Record<string, unknown> = {}
+
+  if (patch.title !== undefined && shape.titleProp) {
+    properties[shape.titleProp] = { title: richText(patch.title) }
+  }
+  if (patch.status !== undefined && shape.statusProp && shape.statusType) {
+    properties[shape.statusProp] = { [shape.statusType]: { name: patch.status } }
+  }
+  // Arbitrary select-ish columns: Priority, Type, a version tag, and so on.
+  for (const [name, chosen] of Object.entries(patch.values ?? {})) {
+    const field = shape.fields.find((f) => f.name === name)
+    if (!field) continue
+    if (field.type === 'multi_select') {
+      properties[name] = { multi_select: chosen.map((value) => ({ name: value })) }
+    } else {
+      // Clearing a single-valued property means sending null, not an empty name.
+      properties[name] = { [field.type]: chosen[0] ? { name: chosen[0] } : null }
+    }
+  }
+  if (patch.done !== undefined) {
+    if (shape.checkboxProp) {
+      properties[shape.checkboxProp] = { checkbox: patch.done }
+    } else if (shape.statusProp && shape.statusType && shape.statusOptions.length > 0) {
+      // No checkbox: fall back to moving the status to a done/not-done option.
+      // An explicit status in the same patch is the more specific instruction.
+      const done = [...shape.doneValues][0] ?? shape.statusOptions[shape.statusOptions.length - 1]
+      const notDone = shape.statusOptions.find((o) => !shape.doneValues.has(o))
+      const next = patch.done ? done : notDone
+      if (next && patch.status === undefined) {
+        properties[shape.statusProp] = { [shape.statusType]: { name: next } }
+      }
+    }
+  }
+  return properties
+}
+
+/**
+ * Names in a patch that this database has no column for. Reported rather than
+ * ignored: an agent that thinks it set a priority should find out that it did
+ * not.
+ */
+function unknownFields(shape: DatabaseShape, patch: NotionTaskPatch): string[] {
+  return Object.keys(patch.values ?? {}).filter(
+    (name) => !shape.fields.some((f) => f.name === name)
+  )
+}
+
 // ---- public surface --------------------------------------------------------
 
 const shapeCache = new Map<string, DatabaseShape>()
+
+/** The board's shape, from cache when we already looked. */
+async function shapeOf(
+  databaseId: string
+): Promise<{ ok: true; shape: DatabaseShape } | { ok: false; error: string }> {
+  const cached = shapeCache.get(databaseId)
+  if (cached) return { ok: true, shape: cached }
+  const db = await request<any>('GET', `/databases/${databaseId}`)
+  if (!db.ok) return { ok: false, error: db.error.message }
+  const shape = readDatabaseShape(db.data)
+  shapeCache.set(databaseId, shape)
+  return { ok: true, shape }
+}
 
 /** Figure out whether an id points at a database or an ordinary page. */
 export async function resolveTarget(
@@ -461,105 +659,109 @@ export async function listTasks(target: string): Promise<NotionBoard> {
 
 export async function createTask(
   target: string,
-  title: string
-): Promise<{ ok: boolean; error?: string }> {
+  draft: NotionTaskDraft | string
+): Promise<{ ok: boolean; error?: string; id?: string; url?: string; ignored?: string[] }> {
+  // Callers that only ever set a title — the sidebar's quick-add — keep passing
+  // one rather than wrapping it.
+  const wanted: NotionTaskDraft = typeof draft === 'string' ? { title: draft } : draft
+  const title = wanted.title.trim()
+  if (!title) return { ok: false, error: 'A non-empty title is required.' }
+
   const resolved = await resolveTarget(target)
   if (!resolved.ok) return { ok: false, error: resolved.error }
 
+  const body = wanted.body?.trim() ? blocksFromText(wanted.body) : []
+
   if (resolved.kind === 'database') {
-    let shape = shapeCache.get(resolved.id)
-    if (!shape) {
-      const db = await request<any>('GET', `/databases/${resolved.id}`)
-      if (!db.ok) return { ok: false, error: db.error.message }
-      shape = readDatabaseShape(db.data)
-      shapeCache.set(resolved.id, shape)
-    }
+    const found = await shapeOf(resolved.id)
+    if (!found.ok) return { ok: false, error: found.error }
+    const shape = found.shape
     if (!shape.titleProp) return { ok: false, error: 'That database has no title property.' }
 
-    const result = await request('POST', '/pages', {
+    const result = await request<any>('POST', '/pages', {
       parent: { database_id: resolved.id },
-      properties: {
-        [shape.titleProp]: { title: [{ type: 'text', text: { content: title } }] }
-      }
+      properties: buildProperties(shape, { ...wanted, title }),
+      // Body goes in the same call, so a failure leaves no half-made task.
+      ...(body.length > 0 ? { children: body.slice(0, BLOCK_LIMIT) } : {})
     })
-    return result.ok ? { ok: true } : { ok: false, error: result.error.message }
+    if (!result.ok) return { ok: false, error: result.error.message }
+
+    const id = String(result.data?.id ?? '')
+    // Anything past the first batch is appended; rare, but a long report pasted
+    // in wholesale gets there.
+    if (body.length > BLOCK_LIMIT && id) {
+      const rest = await appendBlocks(id, body.slice(BLOCK_LIMIT))
+      if (!rest.ok) return { ok: false, error: rest.error }
+    }
+    return { ok: true, id, url: result.data?.url ?? undefined, ignored: unknownFields(shape, wanted) }
   }
 
-  const result = await request('PATCH', `/blocks/${resolved.id}/children`, {
+  const result = await request<any>('PATCH', `/blocks/${resolved.id}/children`, {
     children: [
       {
         object: 'block',
         type: 'to_do',
-        to_do: { rich_text: [{ type: 'text', text: { content: title } }], checked: false }
+        to_do: { rich_text: richText(title), checked: wanted.done === true }
       }
     ]
   })
-  return result.ok ? { ok: true } : { ok: false, error: result.error.message }
+  if (!result.ok) return { ok: false, error: result.error.message }
+
+  // On a plain page there are no properties to set, so the body hangs under the
+  // checkbox itself.
+  const created = String(result.data?.results?.[0]?.id ?? '')
+  if (body.length > 0 && created) {
+    const appended = await appendBlocks(created, body)
+    if (!appended.ok) return { ok: false, error: appended.error }
+  }
+  return { ok: true, id: created }
 }
 
 export async function updateTask(
   target: string,
   taskId: string,
   patch: NotionTaskPatch
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; ignored?: string[] }> {
   const resolved = await resolveTarget(target)
   if (!resolved.ok) return { ok: false, error: resolved.error }
+
+  const extra = patch.appendBody?.trim() ? blocksFromText(patch.appendBody) : []
 
   if (resolved.kind === 'page') {
     // Tasks on a plain page are to_do blocks, patched directly.
     const body: any = { to_do: {} }
     if (patch.done !== undefined) body.to_do.checked = patch.done
-    if (patch.title !== undefined) {
-      body.to_do.rich_text = [{ type: 'text', text: { content: patch.title } }]
+    if (patch.title !== undefined) body.to_do.rich_text = richText(patch.title)
+    if (Object.keys(body.to_do).length > 0) {
+      const result = await request('PATCH', `/blocks/${taskId}`, body)
+      if (!result.ok) return { ok: false, error: result.error.message }
     }
-    const result = await request('PATCH', `/blocks/${taskId}`, body)
-    return result.ok ? { ok: true } : { ok: false, error: result.error.message }
+    if (extra.length > 0) {
+      const appended = await appendBlocks(taskId, extra)
+      if (!appended.ok) return { ok: false, error: appended.error }
+    }
+    return { ok: true }
   }
 
-  let shape = shapeCache.get(resolved.id)
-  if (!shape) {
-    const db = await request<any>('GET', `/databases/${resolved.id}`)
-    if (!db.ok) return { ok: false, error: db.error.message }
-    shape = readDatabaseShape(db.data)
-    shapeCache.set(resolved.id, shape)
-  }
+  const found = await shapeOf(resolved.id)
+  if (!found.ok) return { ok: false, error: found.error }
+  const shape = found.shape
 
-  const properties: Record<string, unknown> = {}
-  if (patch.title !== undefined && shape.titleProp) {
-    properties[shape.titleProp] = { title: [{ type: 'text', text: { content: patch.title } }] }
-  }
-  if (patch.status !== undefined && shape.statusProp && shape.statusType) {
-    properties[shape.statusProp] = { [shape.statusType]: { name: patch.status } }
-  }
-  // Arbitrary select-ish columns: Priority, Type, a version tag, and so on.
-  for (const [name, chosen] of Object.entries(patch.values ?? {})) {
-    const field = shape.fields.find((f) => f.name === name)
-    if (!field) continue
-    if (field.type === 'multi_select') {
-      properties[name] = { multi_select: chosen.map((value) => ({ name: value })) }
-    } else {
-      // Clearing a single-valued property means sending null, not an empty name.
-      properties[name] = { [field.type]: chosen[0] ? { name: chosen[0] } : null }
-    }
-  }
-  if (patch.done !== undefined) {
-    if (shape.checkboxProp) {
-      properties[shape.checkboxProp] = { checkbox: patch.done }
-    } else if (shape.statusProp && shape.statusType && shape.statusOptions.length > 0) {
-      // No checkbox: fall back to moving the status to a done/not-done option.
-      const done = [...shape.doneValues][0] ?? shape.statusOptions[shape.statusOptions.length - 1]
-      const notDone = shape.statusOptions.find((o) => !shape.doneValues.has(o))
-      const next = patch.done ? done : notDone
-      if (next) properties[shape.statusProp] = { [shape.statusType]: { name: next } }
-    }
-  }
+  const properties = buildProperties(shape, patch)
 
-  if (Object.keys(properties).length === 0) {
+  if (Object.keys(properties).length === 0 && extra.length === 0) {
     return { ok: false, error: 'Nothing on this database can represent that change.' }
   }
 
-  const result = await request('PATCH', `/pages/${taskId}`, { properties })
-  return result.ok ? { ok: true } : { ok: false, error: result.error.message }
+  if (Object.keys(properties).length > 0) {
+    const result = await request('PATCH', `/pages/${taskId}`, { properties })
+    if (!result.ok) return { ok: false, error: result.error.message }
+  }
+  if (extra.length > 0) {
+    const appended = await appendBlocks(taskId, extra)
+    if (!appended.ok) return { ok: false, error: appended.error }
+  }
+  return { ok: true, ignored: unknownFields(shape, patch) }
 }
 
 export async function deleteTask(

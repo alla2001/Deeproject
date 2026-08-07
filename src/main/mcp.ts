@@ -4,13 +4,18 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { app } from 'electron'
 import { loadState } from './store'
+import type { NotionTaskPatch } from '@shared/types'
 import { createTask, deleteTask, hasNotionToken, listTasks, updateTask } from './notion'
 import {
+  amendPostTags,
+  createPost,
   getPost,
   hasDiscordToken,
   listPosts,
+  replyToPost,
   setPostArchived,
-  setPostTagsByName
+  setPostTagsByName,
+  setPostTitle
 } from './discord'
 import { hasRobloxApiKey, uploadAsset } from './robloxAssets'
 import { isInside } from './files'
@@ -56,17 +61,38 @@ const TOOLS = [
   },
   {
     name: 'create_task',
-    description: "Add a new task to this project's Notion board.",
+    description:
+      "Add a task to this project's Notion board, filled in properly. Call list_tasks first to see the board's `fields` — every column it lists can be set here through `values`, and `body` becomes the page content. Prefer creating a task complete over creating a bare title and correcting it afterwards.",
     inputSchema: {
       type: 'object',
-      properties: { title: { type: 'string', description: 'The task title.' } },
+      properties: {
+        title: { type: 'string', description: 'The task title.' },
+        body: {
+          type: 'string',
+          description:
+            'Page content for the task: repro steps, context, acceptance criteria. Markdown headings, bullets, numbered lists and ``` code fences are converted to real Notion blocks.'
+        },
+        status: {
+          type: 'string',
+          description: "One of the board's statusOptions, e.g. \"Not started\"."
+        },
+        done: { type: 'boolean', description: 'Mark it complete immediately. Rarely wanted.' },
+        values: {
+          type: 'object',
+          description:
+            'Any other column from the board\'s `fields`, by name: {"Priority": "High", "Platform": ["PC", "Mobile"]}. Single-valued columns take a string, multi-select columns take an array. Values must be options that already exist on the board.',
+          additionalProperties: {
+            oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }]
+          }
+        }
+      },
       required: ['title']
     }
   },
   {
     name: 'update_task',
     description:
-      'Update a task. Pass the id from list_tasks plus any of title, done or status.',
+      'Update a task. Pass the id from list_tasks plus anything you want to change. `values` sets any column on the board; `append_body` adds notes to the end of the task page without touching what is already written there.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -76,6 +102,19 @@ const TOOLS = [
         status: {
           type: 'string',
           description: 'Status name; only valid when the board is a database with a status property.'
+        },
+        values: {
+          type: 'object',
+          description:
+            'Columns to set, by name, as in create_task. Pass an empty array to clear a column.',
+          additionalProperties: {
+            oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }]
+          }
+        },
+        append_body: {
+          type: 'string',
+          description:
+            'Text appended to the end of the task page as new blocks — a findings note, a link to the commit that fixed it. Never overwrites existing content.'
         }
       },
       required: ['id']
@@ -120,17 +159,66 @@ const TOOLS = [
     }
   },
   {
+    name: 'create_bug_report',
+    description:
+      "Open a new report in this project's Discord forum — a bug you found, or one a user described that is not filed yet. Call list_bug_reports first for `availableTags`; only tags that already exist on the forum can be applied. Write the body as a real report: what happens, what should happen, how to reproduce it, and where you saw it.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'One line naming the symptom. Truncated at 100 characters by Discord.'
+        },
+        body: {
+          type: 'string',
+          description:
+            'The report itself, up to 2000 characters. Discord renders markdown, so headings, bullets and ``` code fences all work.'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags to apply, by name, from availableTags.'
+        }
+      },
+      required: ['title', 'body']
+    }
+  },
+  {
+    name: 'reply_to_bug_report',
+    description:
+      'Post a reply on a bug report — asking the reporter for a repro, or recording what you found and fixed. Up to 2000 characters, markdown allowed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Report id from list_bug_reports.' },
+        body: { type: 'string' }
+      },
+      required: ['id', 'body']
+    }
+  },
+  {
     name: 'update_bug_report',
     description:
-      'Retag or close a bug report — for example tagging it "fixed" once you have shipped the fix. Tags are given by name and replace the existing set.',
+      'Retag, rename or close a bug report — for example tagging it "fixed" once you have shipped the fix. Prefer add_tags/remove_tags, which leave the other tags alone; `tags` replaces the whole set and will drop any you do not restate.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string' },
+        title: { type: 'string', description: 'Rename the report.' },
+        add_tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags to apply on top of the ones already there, by name.'
+        },
+        remove_tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags to take off, by name.'
+        },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Full replacement tag list, by name.'
+          description: 'Full replacement tag list, by name. Overrides add_tags/remove_tags.'
         },
         closed: { type: 'boolean', description: 'Archive (close) or reopen the post.' }
       },
@@ -162,16 +250,62 @@ const TOOLS = [
   {
     name: 'create_task_from_report',
     description:
-      "Copy a Discord bug report onto this project's Notion board as a task, keeping its tags in the title.",
+      "Copy a Discord bug report onto this project's Notion board as a task. The report's full text, author, attachments and Discord link are carried into the task body, so the task stands on its own. Pass status/values to classify it at the same time — the forum's tags do not map onto the board's columns by themselves.",
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Report id from list_bug_reports.' }
+        id: { type: 'string', description: 'Report id from list_bug_reports.' },
+        title: {
+          type: 'string',
+          description: "Override the task title. Defaults to the report's own, prefixed with its tags."
+        },
+        status: { type: 'string' },
+        values: {
+          type: 'object',
+          description: 'Board columns to set, by name, as in create_task.',
+          additionalProperties: {
+            oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }]
+          }
+        },
+        include_replies: {
+          type: 'boolean',
+          description: 'Copy the discussion under the report too. Defaults to false.'
+        }
       },
       required: ['id']
     }
   }
 ]
+
+/**
+ * Read a `values` argument.
+ *
+ * The schema asks for arrays for multi-select columns and strings elsewhere,
+ * and models mix the two freely, so both are accepted and normalised rather
+ * than rejected on a technicality.
+ */
+function readValues(raw: unknown): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, string[]> = {}
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string') out[name] = value.trim() ? [value] : []
+    else if (Array.isArray(value)) out[name] = value.map(String).filter(Boolean)
+    else if (value === null) out[name] = []
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+function readStrings(raw: unknown): string[] | undefined {
+  if (typeof raw === 'string') return [raw]
+  if (Array.isArray(raw)) return raw.map(String)
+  return undefined
+}
+
+/** Warn about names the board had no column for, rather than staying silent. */
+function ignoredNote(ignored: string[] | undefined): string {
+  if (!ignored || ignored.length === 0) return ''
+  return ` Ignored — this board has no such column: ${ignored.join(', ')}.`
+}
 
 let server: Server | null = null
 let port = 0
@@ -248,7 +382,9 @@ async function callTool(
   }
 
   const forum = forumFor(projectId)
-  const needsForum = name.includes('bug_report')
+  // create_task_from_report reads the forum before it writes to Notion, so it
+  // belongs on this side of the fence too.
+  const needsForum = name.includes('bug_report') || name === 'create_task_from_report'
 
   if (needsForum && !forum) {
     return textResult(
@@ -298,21 +434,58 @@ async function callTool(
         return post.ok ? textResult(post) : textResult(post.error, true)
       }
 
+      case 'create_bug_report': {
+        const result = await createPost(forum, {
+          title: typeof args.title === 'string' ? args.title : '',
+          body: typeof args.body === 'string' ? args.body : '',
+          tags: readStrings(args.tags)
+        })
+        return result.ok
+          ? textResult({ created: true, id: result.id, url: result.url })
+          : textResult(result.error ?? 'Could not open the report.', true)
+      }
+
+      case 'reply_to_bug_report': {
+        const id = typeof args.id === 'string' ? args.id : ''
+        if (!id) return textResult('A report id is required.', true)
+        const result = await replyToPost(id, typeof args.body === 'string' ? args.body : '')
+        return result.ok
+          ? textResult('Replied.')
+          : textResult(result.error ?? 'Could not reply.', true)
+      }
+
       case 'update_bug_report': {
         const id = typeof args.id === 'string' ? args.id : ''
         if (!id) return textResult('A report id is required.', true)
         const notes: string[] = []
-        if (Array.isArray(args.tags)) {
-          const result = await setPostTagsByName(forum, id, args.tags.map(String))
-          if (!result.ok) return textResult(result.error ?? 'Could not retag.', true)
-          notes.push(`tags set to ${args.tags.join(', ')}`)
+
+        if (typeof args.title === 'string') {
+          const result = await setPostTitle(id, args.title)
+          if (!result.ok) return textResult(result.error ?? 'Could not rename.', true)
+          notes.push(`renamed to "${args.title}"`)
         }
+
+        const replacement = readStrings(args.tags)
+        const add = readStrings(args.add_tags) ?? []
+        const remove = readStrings(args.remove_tags) ?? []
+        if (replacement) {
+          const result = await setPostTagsByName(forum, id, replacement)
+          if (!result.ok) return textResult(result.error ?? 'Could not retag.', true)
+          notes.push(`tags set to ${replacement.join(', ') || '(none)'}`)
+        } else if (add.length > 0 || remove.length > 0) {
+          const result = await amendPostTags(forum, id, add, remove)
+          if (!result.ok) return textResult(result.error ?? 'Could not retag.', true)
+          notes.push(`tags now ${result.tags?.join(', ') || '(none)'}`)
+        }
+
         if (typeof args.closed === 'boolean') {
           const result = await setPostArchived(id, args.closed)
           if (!result.ok) return textResult(result.error ?? 'Could not change state.', true)
           notes.push(args.closed ? 'closed' : 'reopened')
         }
-        if (notes.length === 0) return textResult('Pass tags and/or closed.', true)
+        if (notes.length === 0) {
+          return textResult('Pass title, add_tags/remove_tags, tags and/or closed.', true)
+        }
         return textResult(`Updated: ${notes.join('; ')}.`)
       }
 
@@ -327,10 +500,46 @@ async function callTool(
         if (!board.ok) return textResult(board.error ?? 'Could not read the forum.', true)
         const post = board.posts.find((p) => p.id === id)
         if (!post) return textResult(`No report with id ${id}.`, true)
-        const title = post.tags.length > 0 ? `[${post.tags.join('/')}] ${post.title}` : post.title
-        const result = await createTask(notionTarget, title)
+
+        // The excerpt on the board is truncated, so read the report properly:
+        // a task carrying half the repro steps is worse than no task.
+        const full = await getPost(id, args.include_replies === true ? 30 : 0)
+
+        const title =
+          typeof args.title === 'string' && args.title.trim()
+            ? args.title.trim()
+            : post.tags.length > 0
+              ? `[${post.tags.join('/')}] ${post.title}`
+              : post.title
+
+        const lines: string[] = []
+        lines.push(full.ok && full.body ? full.body : post.excerpt)
+        lines.push('')
+        lines.push('## Reported on Discord')
+        const author = (full.ok ? full.author : null) ?? post.author
+        if (author) lines.push(`- Reporter: ${author}`)
+        if (post.tags.length > 0) lines.push(`- Forum tags: ${post.tags.join(', ')}`)
+        if (post.url) lines.push(`- Thread: ${post.url}`)
+        if (full.ok && full.attachments.length > 0) {
+          lines.push('- Attachments:')
+          for (const url of full.attachments) lines.push(`  - ${url}`)
+        }
+        if (args.include_replies === true && full.ok && full.replies.length > 0) {
+          lines.push('')
+          lines.push('## Discussion')
+          for (const reply of full.replies) lines.push(`- **${reply.author}**: ${reply.content}`)
+        }
+
+        const result = await createTask(notionTarget, {
+          title,
+          body: lines.join('\n'),
+          status: typeof args.status === 'string' ? args.status : undefined,
+          values: readValues(args.values)
+        })
         return result.ok
-          ? textResult(`Created Notion task "${title}".`)
+          ? textResult(
+              `Created Notion task "${title}".${result.url ? ` ${result.url}` : ''}${ignoredNote(result.ignored)}`
+            )
           : textResult(result.error ?? 'Could not create the task.', true)
       }
     }
@@ -362,6 +571,13 @@ async function callTool(
         board: board.title,
         kind: board.kind,
         statusOptions: board.statusOptions,
+        // The whole editable schema, so a task can be filled in properly at
+        // creation instead of being guessed at and corrected.
+        fields: board.fields.map((f) => ({
+          name: f.name,
+          type: f.type,
+          options: f.options.map((o) => o.name)
+        })),
         count: tasks.length,
         tasks
       })
@@ -370,25 +586,39 @@ async function callTool(
     case 'create_task': {
       const title = typeof args.title === 'string' ? args.title.trim() : ''
       if (!title) return textResult('A non-empty title is required.', true)
-      const result = await createTask(target, title)
+      const result = await createTask(target, {
+        title,
+        body: typeof args.body === 'string' ? args.body : undefined,
+        status: typeof args.status === 'string' ? args.status : undefined,
+        done: typeof args.done === 'boolean' ? args.done : undefined,
+        values: readValues(args.values)
+      })
       return result.ok
-        ? textResult(`Created task "${title}".`)
+        ? textResult(
+            `Created task "${title}".${result.url ? ` ${result.url}` : ''}${ignoredNote(result.ignored)}`
+          )
         : textResult(result.error ?? 'Could not create the task.', true)
     }
 
     case 'update_task': {
       const id = typeof args.id === 'string' ? args.id : ''
       if (!id) return textResult('A task id is required.', true)
-      const patch: { title?: string; done?: boolean; status?: string } = {}
+      const patch: NotionTaskPatch = {}
       if (typeof args.title === 'string') patch.title = args.title
       if (typeof args.done === 'boolean') patch.done = args.done
       if (typeof args.status === 'string') patch.status = args.status
+      const values = readValues(args.values)
+      if (values) patch.values = values
+      if (typeof args.append_body === 'string') patch.appendBody = args.append_body
       if (Object.keys(patch).length === 0) {
-        return textResult('Pass at least one of title, done or status.', true)
+        return textResult(
+          'Pass at least one of title, done, status, values or append_body.',
+          true
+        )
       }
       const result = await updateTask(target, id, patch)
       return result.ok
-        ? textResult('Updated.')
+        ? textResult(`Updated.${ignoredNote(result.ignored)}`)
         : textResult(result.error ?? 'Could not update the task.', true)
     }
 
@@ -428,7 +658,7 @@ async function handleRpc(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'deeproject-tasks', version: app.getVersion() },
         instructions:
-          'These tools reach the Notion task board and the Discord bug-report forum linked to this project in Deeproject. Call list_tasks or list_bug_reports first to get ids; get_bug_report returns a report in full with its replies.'
+          "These tools reach the Notion task board and the Discord bug-report forum linked to this project in Deeproject. Call list_tasks or list_bug_reports first: as well as the ids you will need, they report what a task or report can carry — list_tasks returns the board's `fields`, every column with its allowed options, and list_bug_reports returns the forum's `availableTags`. Fill those in when you create something rather than filing a bare title and correcting it afterwards. get_bug_report returns a report in full with its replies."
       })
     }
 

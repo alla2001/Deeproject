@@ -269,14 +269,34 @@ a project with a linked board or forum is given MCP tools for them:
 
 - Notion — `list_tasks`, `create_task`, `update_task`, `delete_task`
 - Discord — `list_bug_reports`, `get_bug_report` (full text plus replies),
-  `update_bug_report` (retag by name, close or reopen)
+  `create_bug_report`, `reply_to_bug_report`, `update_bug_report` (retag by
+  name, rename, close or reopen)
 - `create_task_from_report` bridges the two
 - Roblox — `upload_roblox_asset`, returning an `rbxassetid://` reference
 
+**It can fill in every field, not just the title.** `list_tasks` reports the
+board's whole editable schema — each column with the options it allows — so
+`create_task` and `update_task` can set Status, Priority, Type, Platform, a
+version tag or anything else the board carries, in the same call that creates
+the task. `body` becomes the page content, with markdown headings, bullets,
+numbered steps and ``` code fences converted into real Notion blocks; on an
+update, `append_body` adds to the end without touching what is already written.
+A column name the board doesn't have is reported back rather than silently
+dropped, so a task Claude thinks it prioritised really is prioritised.
+
+The forum side works the same way: `list_bug_reports` reports the forum's
+available tags, and `create_bug_report` opens a properly tagged thread with a
+real write-up in it. `update_bug_report` prefers `add_tags`/`remove_tags` over
+restating the whole set, so tagging something `fixed` cannot quietly drop the
+`critical` that was already on it. Tag names are resolved against the forum and
+an unrecognised one fails the whole call, rather than applying the half that
+matched.
+
 So you can ask it to read the critical bugs, dig into one, fix it, tick the task
-off and tag the report `fixed` without leaving the terminal. Nothing is added to
-your repo: the app serves the tools over loopback HTTP and passes Claude a
-generated `--mcp-config` file from its own data folder.
+off and tag the report `fixed` without leaving the terminal — or hand it a bug
+you just hit and have it filed, classified and cross-referenced on the board.
+Nothing is added to your repo: the app serves the tools over loopback HTTP and
+passes Claude a generated `--mcp-config` file from its own data folder.
 
 ## Keyboard
 

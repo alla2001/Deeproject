@@ -1,7 +1,16 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
+import { basename, extname, join } from 'node:path'
 import type {
   AppState,
   EmbedBounds,
@@ -11,6 +20,13 @@ import type {
   RobloxCreator
 } from '@shared/types'
 import { flushAll, loadLayout, loadState, saveLayout, saveState } from './store'
+import {
+  applyBundle,
+  estimateConversationBytes,
+  exportBundle,
+  pathExists,
+  probeBundle
+} from './transfer'
 import { detectShells } from './shells'
 import { ptyManager } from './pty'
 import { statsMonitor } from './stats'
@@ -305,6 +321,78 @@ export function registerIpc(): void {
     updateTask(target, taskId, patch)
   )
   ipcMain.handle('notion:delete', (_e, target: string, taskId: string) => deleteTask(target, taskId))
+
+  // ---- transfer between machines -------------------------------------------
+  ipcMain.handle('transfer:pickDir', async (e, mode: 'export' | 'import') => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = {
+      title: mode === 'export' ? 'Choose where to write the bundle' : 'Choose a bundle folder',
+      buttonLabel: mode === 'export' ? 'Export here' : 'Open bundle',
+      properties: mode === 'export' ? ['openDirectory', 'createDirectory'] : ['openDirectory']
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('transfer:estimate', () => estimateConversationBytes())
+  ipcMain.handle('transfer:export', (_e, dir: string, includeConversations: boolean) =>
+    exportBundle(dir, { includeConversations })
+  )
+  ipcMain.handle('transfer:probe', (_e, dir: string) => probeBundle(dir))
+  ipcMain.handle(
+    'transfer:apply',
+    (_e, dir: string, mode: 'replace' | 'merge', paths: Record<string, string>) =>
+      applyBundle(dir, { mode, paths })
+  )
+  ipcMain.handle('transfer:pathExists', (_e, target: string) => pathExists(target))
+
+  // ---- idea attachments ----------------------------------------------------
+  ipcMain.handle('ideas:pickImages', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Attach images',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'] }]
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return result.canceled ? [] : result.filePaths
+  })
+
+  /**
+   * Copy images into the app's own store. Referencing them where they were
+   * dropped from would leave an idea full of broken thumbnails as soon as the
+   * originals move — and screenshots usually come from a temp folder anyway.
+   */
+  ipcMain.handle('ideas:attach', (_e, ideaId: string, sources: string[]) => {
+    const stored: string[] = []
+    try {
+      const dir = join(app.getPath('userData'), 'idea-images', ideaId)
+      mkdirSync(dir, { recursive: true })
+      for (const source of sources) {
+        if (!existsSync(source)) continue
+        const ext = extname(source) || '.png'
+        const target = join(dir, `${randomUUID()}${ext}`)
+        copyFileSync(source, target)
+        stored.push(target)
+      }
+    } catch (err) {
+      console.error('[ideas:attach]', err)
+    }
+    return stored
+  })
+
+  ipcMain.handle('ideas:removeImage', (_e, filePath: string) => {
+    try {
+      // Only ever delete out of our own attachment folder.
+      const root = join(app.getPath('userData'), 'idea-images')
+      if (!isInside(root, filePath)) return false
+      if (existsSync(filePath)) unlinkSync(filePath)
+      return true
+    } catch (err) {
+      console.error('[ideas:removeImage]', err)
+      return false
+    }
+  })
 
   // ---- roblox assets -------------------------------------------------------
   ipcMain.handle('rbxassets:setKey', (_e, key: string | null) => setRobloxApiKey(key))

@@ -32,6 +32,7 @@ export type Modal =
   | { kind: 'settings' }
   | { kind: 'presets' }
   | { kind: 'embed' }
+  | { kind: 'transfer' }
   | null
 
 interface Store {
@@ -374,6 +375,7 @@ export const useStore = create<Store>((set, get) => ({
       command: input.command ?? null,
       presetId: input.presetId ?? null,
       shellId: input.shellId ?? get().settings.defaultShellId,
+      paused: false,
       createdAt: Date.now()
     }
     set((s) => ({
@@ -415,6 +417,7 @@ export const useStore = create<Store>((set, get) => ({
       title: 'New idea',
       body: '',
       tags: [],
+      images: [],
       pinned: false,
       projectId: null,
       createdAt: now,

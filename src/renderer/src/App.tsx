@@ -8,6 +8,7 @@ import { QuickOpen } from './components/QuickOpen'
 import { ContextMenuHost } from './components/ContextMenu'
 import { PresetsDialog, ProjectDialog, SettingsDialog, TerminalDialog } from './components/dialogs'
 import { EmbedPicker } from './components/EmbedPicker'
+import { TransferDialog } from './components/TransferDialog'
 import { pushData } from './lib/terminals'
 import { altDigit, matches, SHORTCUTS } from './lib/keys'
 import { cyclePanel, focusPanelByIndex } from './lib/dock'
@@ -211,6 +212,7 @@ export default function App(): JSX.Element {
       {modal?.kind === 'settings' && <SettingsDialog />}
       {modal?.kind === 'presets' && <PresetsDialog />}
       {modal?.kind === 'embed' && <EmbedPicker />}
+      {modal?.kind === 'transfer' && <TransferDialog />}
 
       <CommandPalette />
       <QuickOpen />

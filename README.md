@@ -51,8 +51,16 @@ title is used instead.
 
 **Terminals.** Every launch opens a new tab. Tabs carry the preset's emoji and
 accent colour plus a live status dot (green running, amber starting, red exited).
-Right-click a tab to restart, stop, customise, hide it while keeping the terminal
-in the sidebar, or close it for good.
+Right-click a tab to restart, stop, pause, customise, hide it while keeping the
+terminal in the sidebar, or close it for good.
+
+**Pausing** frees everything a terminal holds without losing the tab. *Stop* only
+ends the child processes — the renderer still keeps that terminal's scrollback
+and its WebGL context. Pause ends the process tree *and* disposes the xterm
+instance, so a paused tab costs essentially nothing; its settings, colour and
+place in the layout stay exactly where they were. Paused terminals stay paused
+across restarts and are skipped by relaunch-on-startup. Resuming starts a fresh
+session — with `claude --resume` that picks the conversation back up.
 
 **Docking.** Drag any tab to an edge of another pane to split left / right / top /
 bottom, or onto a tab strip to join that group. Drag the dividers to resize. The
@@ -69,6 +77,12 @@ terminal that doesn't set its own.
 a searchable list on one side, a title/body editor on the other. Ideas take tags,
 can be pinned to the top, and can be linked to a project once you start building
 one. Everything saves as you type, into the same `state.json` as the rest.
+
+Ideas take images too — paste a screenshot straight into the body, drop files
+onto the strip, or use ＋. Attachments are **copied** into
+`%APPDATA%\deeproject\idea-images\<idea>\`, so a reference sketch doesn't turn
+into a broken thumbnail when the original moves or the temp folder is cleared.
+Removing one deletes the copy.
 
 **Watch.** The ▶ button opens YouTube in a dockable tab — paste any link (watch,
 share, playlist, `/shorts`, `/live`, with or without a timestamp) and it plays
@@ -127,6 +141,33 @@ windowed. And because a docked window is no longer top-level,
 `GetForegroundWindow` returns Deeproject rather than the game, so a title that
 pauses or drops audio "when it loses focus" may do so while docked. Nothing can
 be done about that from the outside.
+
+**Moving between computers.** The ⇄ button exports a bundle folder holding your
+projects, terminals, dock layout, presets, settings and ideas with their images —
+and, optionally, your Claude conversations. Copy it across (a cloud-synced folder
+works well, since only what changed re-uploads) and import it on the other
+machine.
+
+If a project lives somewhere else over there, import shows every project with
+where it expects to find it. It guesses first: the same path, then the same path
+with the exporting machine's home folder swapped for yours, then a folder of the
+same name beside a project it already located. Anything left over gets a
+**Locate…** button. Relocating rewrites the project path, its terminals' working
+directories, and any absolute Rojo or Roblox file paths.
+
+Conversations need the same care: Claude Code keys its transcripts by the
+project's absolute path, in `~/.claude/projects/<path-with-symbols-hyphenated>`.
+Import re-encodes that folder name from the *new* path, so `claude --resume`
+finds the history at its new home. Matching is case-insensitive on the way in and
+out — Windows treats `c:\x` and `C:\x` as one folder but the encoding does not,
+so a project once opened with a lower-case drive letter would otherwise be
+silently skipped. Existing transcripts are never overwritten, and a full replace
+backs up your current state to `state.before-import-<time>.json` first.
+
+**Not transferred:** your Notion, Discord and Roblox tokens — they are encrypted
+with your Windows account and unreadable elsewhere, so re-enter them. Terminal
+scrollback isn't either; it only ever lives in memory. Claude Code's own
+credentials are never touched.
 
 **Presets.** Settings → Presets edits the launch list — label, emoji, command,
 colour, and whether it is pinned to project rows. The built-in Claude presets can
@@ -340,7 +381,12 @@ node scripts/seed-feature-profile.cjs <dir> <project>   # editor + files + rojo 
 powershell -File scripts/screenshot.ps1 -ProcId <pid>   # capture a window to PNG
 powershell -File scripts/crop.ps1 -In a.png -Out b.png -X .. -Y .. -Scale 2
 powershell -File scripts/tree-check.ps1 -Root <pid>     # process tree, with/without guard
+node scripts/check-claude-encoding.cjs                 # transcript folder naming still matches
 ```
+
+`check-claude-encoding.cjs` is worth re-running if transfers ever stop carrying
+history: it encodes each real project path and checks the transcript folder is
+where the importer will look.
 
 `screenshot.ps1` uses `PrintWindow`, so it captures the target window even when
 it is behind another one. Pass `-ScreenCopy` to fall back to copying the screen

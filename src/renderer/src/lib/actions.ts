@@ -38,6 +38,39 @@ export async function stopTerminal(id: string): Promise<void> {
 }
 
 /**
+ * Pause a terminal: end its process tree and throw away the xterm instance.
+ *
+ * Stopping alone only frees the child processes; the renderer still holds the
+ * terminal's buffer and its WebGL context. Disposing the instance releases
+ * those too, so a paused tab costs essentially nothing until it is resumed.
+ * The tab, its settings and its place in the layout all stay put.
+ */
+export async function pauseTerminal(id: string): Promise<void> {
+  const state = useStore.getState()
+  await window.api.pty.dispose(id)
+  disposeTerminal(id)
+  state.updateTerminal(id, { paused: true })
+  state.setStatus(id, 'stopped')
+}
+
+export async function resumeTerminal(id: string): Promise<void> {
+  const state = useStore.getState()
+  const term = state.terminals.find((t) => t.id === id)
+  if (!term) return
+  state.updateTerminal(id, { paused: false })
+  // The panel rebuilds its xterm on the next render and starts the session.
+  markAutoStart(id)
+  openPanel({ ...term, paused: false })
+}
+
+export async function togglePause(id: string): Promise<void> {
+  const term = useStore.getState().terminals.find((t) => t.id === id)
+  if (!term) return
+  if (term.paused) await resumeTerminal(id)
+  else await pauseTerminal(id)
+}
+
+/**
  * Close a tab and forget the terminal. Prompts first when something is still
  * running, unless the user turned that off.
  */

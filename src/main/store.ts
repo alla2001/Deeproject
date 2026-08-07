@@ -169,6 +169,7 @@ function normalizeIdea(i: Partial<GameIdea>): GameIdea {
     title: i.title ?? 'Untitled idea',
     body: i.body ?? '',
     tags: Array.isArray(i.tags) ? i.tags.filter((t) => typeof t === 'string') : [],
+    images: Array.isArray(i.images) ? i.images.filter((p) => typeof p === 'string') : [],
     pinned: i.pinned ?? false,
     projectId: i.projectId ?? null,
     createdAt: i.createdAt ?? now,
@@ -201,6 +202,7 @@ function normalizeTerminal(t: Partial<TerminalConfig>): TerminalConfig {
     command: t.command ?? null,
     presetId: t.presetId ?? null,
     shellId: t.shellId ?? null,
+    paused: t.paused ?? false,
     createdAt: t.createdAt ?? Date.now()
   }
 }

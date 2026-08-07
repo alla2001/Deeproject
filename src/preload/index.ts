@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppState,
+  BundleSummary,
   DiscordBoard,
   DiscordDetail,
   EmbedAttachResult,
@@ -148,6 +149,39 @@ const api = {
       ipcRenderer.invoke('notion:update', target, taskId, patch),
     remove: (target: string, taskId: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('notion:delete', target, taskId)
+  },
+  transfer: {
+    pickDir: (mode: 'export' | 'import'): Promise<string | null> =>
+      ipcRenderer.invoke('transfer:pickDir', mode),
+    /** Bytes of Claude transcripts an export would carry, for a size warning. */
+    estimate: (): Promise<number> => ipcRenderer.invoke('transfer:estimate'),
+    export: (
+      dir: string,
+      includeConversations: boolean
+    ): Promise<{
+      ok: boolean
+      error?: string
+      bytes?: number
+      projects?: number
+      conversations?: number
+    }> => ipcRenderer.invoke('transfer:export', dir, includeConversations),
+    probe: (dir: string): Promise<BundleSummary> => ipcRenderer.invoke('transfer:probe', dir),
+    apply: (
+      dir: string,
+      mode: 'replace' | 'merge',
+      paths: Record<string, string>
+    ): Promise<{ ok: boolean; error?: string; imported?: number; conversations?: number }> =>
+      ipcRenderer.invoke('transfer:apply', dir, mode, paths),
+    pathExists: (target: string): Promise<boolean> =>
+      ipcRenderer.invoke('transfer:pathExists', target)
+  },
+  ideas: {
+    pickImages: (): Promise<string[]> => ipcRenderer.invoke('ideas:pickImages'),
+    /** Copies the given files into the app's store; resolves to the new paths. */
+    attach: (ideaId: string, sources: string[]): Promise<string[]> =>
+      ipcRenderer.invoke('ideas:attach', ideaId, sources),
+    removeImage: (filePath: string): Promise<boolean> =>
+      ipcRenderer.invoke('ideas:removeImage', filePath)
   },
   discord: {
     setToken: (token: string | null): Promise<boolean> =>

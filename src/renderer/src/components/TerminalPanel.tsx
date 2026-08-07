@@ -11,7 +11,7 @@ import {
   safeFit,
   syncFromMain
 } from '../lib/terminals'
-import { restartTerminal, startTerminal } from '../lib/actions'
+import { restartTerminal, resumeTerminal, startTerminal } from '../lib/actions'
 
 export interface TerminalPanelParams extends Record<string, unknown> {
   terminalId: string
@@ -34,7 +34,8 @@ export function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>): 
   useEffect(() => {
     const current = useStore.getState().terminals.find((t) => t.id === id)
     const host = hostRef.current
-    if (!current || !host) return
+    // A paused terminal deliberately has no xterm instance at all.
+    if (!current || current.paused || !host) return
 
     const entry = getOrCreate(current, useStore.getState().settings)
     host.appendChild(entry.container)
@@ -61,7 +62,8 @@ export function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>): 
       ro.disconnect()
       entry.container.remove()
     }
-  }, [id])
+    // Re-runs when paused flips, so resuming rebuilds the instance.
+  }, [id, term?.paused])
 
   // Re-fit and focus as the panel is shown, resized, or activated.
   useEffect(() => {
@@ -136,6 +138,23 @@ export function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>): 
 
   if (!term) {
     return <div className="term-panel term-panel--missing">This terminal no longer exists.</div>
+  }
+
+  if (term.paused) {
+    return (
+      <div className="term-panel term-paused" style={{ ['--accent' as string]: term.color }}>
+        <div className="term-paused-mark">{term.emoji}</div>
+        <h3>Paused</h3>
+        <p>
+          Its process tree and terminal buffer are released, so it is using nothing. Resuming starts
+          a fresh session in {term.cwd}.
+        </p>
+        <button className="btn btn--primary" onClick={() => void resumeTerminal(id)}>
+          ▶ Resume
+        </button>
+        {term.command && <code className="term-paused-cmd">{term.command}</code>}
+      </div>
+    )
   }
 
   const bgPath = term.backgroundImage ?? settings.defaultBackgroundImage

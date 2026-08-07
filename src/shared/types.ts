@@ -166,6 +166,11 @@ export interface TerminalConfig {
   command: string | null
   presetId: string | null
   shellId: string | null
+  /**
+   * Paused terminals keep their tab and settings but hold no process and no
+   * xterm instance, so they cost nothing until resumed.
+   */
+  paused: boolean
   createdAt: number
 }
 
@@ -204,6 +209,55 @@ export interface AppSettings {
   notionTokenSet: boolean
 }
 
+/**
+ * Manifest at the root of a bundle folder. Conversation transcripts run to tens
+ * of megabytes per project, so the bundle is a directory of real files rather
+ * than one embedded document — which also lets a cloud drive sync it
+ * incrementally instead of re-uploading everything on each export.
+ */
+export interface TransferBundle {
+  kind: 'deeproject-bundle'
+  version: number
+  exportedAt: number
+  /** Informational: which machine it came from. */
+  machine: string
+  /** User profile folder at export time, used to guess relocated paths. */
+  home: string
+  state: AppState
+  layout: unknown
+  /** idea id -> file names stored under images/<ideaId>/. */
+  images: Record<string, string[]>
+  /** project ids whose Claude transcripts are included under claude/<id>/. */
+  conversations: string[]
+}
+
+/** A project path in a bundle, checked against this machine. */
+export interface PathProbe {
+  projectId: string
+  name: string
+  originalPath: string
+  /** Where it will actually be used; may differ after relocation. */
+  resolvedPath: string
+  exists: boolean
+  /** True when the app guessed this rather than the bundle providing it. */
+  guessed: boolean
+}
+
+export interface BundleSummary {
+  ok: boolean
+  error?: string
+  exportedAt?: number
+  machine?: string
+  projects?: PathProbe[]
+  counts?: {
+    projects: number
+    terminals: number
+    ideas: number
+    videos: number
+    images: number
+  }
+}
+
 export interface WindowBounds {
   x: number | null
   y: number | null
@@ -218,6 +272,8 @@ export interface GameIdea {
   title: string
   body: string
   tags: string[]
+  /** Absolute paths to images copied into the app's own store. */
+  images: string[]
   pinned: boolean
   /** Optional link back to a project once an idea starts being built. */
   projectId: string | null

@@ -14,6 +14,7 @@ import {
   openTerminal,
   restartTerminal,
   stopTerminal,
+  togglePause,
   toggleRojo,
   openWatchPanel
 } from '../lib/actions'
@@ -61,6 +62,10 @@ function TerminalRow({
     { separator: true },
     { label: 'Restart', onClick: () => void restartTerminal(term.id) },
     { label: 'Stop', onClick: () => void stopTerminal(term.id), disabled: status !== 'running' },
+    {
+      label: term.paused ? 'Resume' : 'Pause (free its resources)',
+      onClick: () => void togglePause(term.id)
+    },
     { separator: true },
     { label: 'Close terminal', onClick: () => void closeTerminal(term.id), danger: true }
   ]
@@ -75,13 +80,14 @@ function TerminalRow({
     >
       <span className="term-row-emoji">{term.emoji}</span>
       <span className="term-row-title">{label}</span>
-      {status === 'running' && stats && (
+      {status === 'running' && !term.paused && stats && (
         <span className="term-row-stats" title={`${stats.cpu.toFixed(1)}% CPU · ${stats.processes} processes`}>
           {stats.cpu >= 1 ? `${stats.cpu.toFixed(0)}%` : ''} {formatBytes(stats.memory)}
         </span>
       )}
-      {!isOpen && <span className="term-row-badge">closed</span>}
-      <StatusDot id={term.id} />
+      {term.paused && <span className="term-row-badge term-row-badge--paused">paused</span>}
+      {!isOpen && !term.paused && <span className="term-row-badge">closed</span>}
+      {term.paused ? <span className="dot dot--paused" title="paused" /> : <StatusDot id={term.id} />}
     </div>
   )
 }
@@ -436,6 +442,13 @@ export function Sidebar(): JSX.Element {
       <div className="sidebar-foot">
         <button className="foot-btn" onClick={() => setModal({ kind: 'presets' })}>
           ⚡ Presets
+        </button>
+        <button
+          className="foot-btn"
+          onClick={() => setModal({ kind: 'transfer' })}
+          title="Move this setup to another computer"
+        >
+          ⇄ Transfer
         </button>
         <button className="foot-btn" onClick={() => setModal({ kind: 'settings' })}>
           ⚙ Settings

@@ -570,6 +570,67 @@ kbd {
   background: var(--bad);
 }
 
+.dot--paused {
+  background: transparent;
+  border: 1px solid var(--text-faint);
+}
+
+.term-row-badge--paused {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.tab-paused {
+  font-size: 8px;
+  letter-spacing: -1px;
+  color: var(--warn);
+  flex-shrink: 0;
+}
+
+/* ---------- paused terminal ---------- */
+
+.term-paused {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  color: var(--text-faint);
+}
+
+.term-paused-mark {
+  font-size: 34px;
+  opacity: 0.55;
+}
+
+.term-paused h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.term-paused p {
+  margin: 0;
+  max-width: 380px;
+  font-size: 12.5px;
+}
+
+.term-paused-cmd {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- dock ---------- */
 
 .dock {
@@ -2214,6 +2275,86 @@ kbd {
   font-size: 11px;
 }
 
+.idea-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px dashed transparent;
+}
+
+.idea-images--drop {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.idea-image {
+  position: relative;
+  width: 92px;
+  height: 66px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.idea-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: zoom-in;
+  display: block;
+}
+
+.idea-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(10, 12, 18, 0.72);
+  opacity: 0;
+}
+
+.idea-image:hover .idea-image-remove {
+  opacity: 1;
+}
+
+.idea-image-remove:hover {
+  background: var(--bad);
+}
+
+.idea-image-add {
+  width: 92px;
+  height: 66px;
+  border-radius: 6px;
+  border: 1px dashed var(--line);
+  color: var(--text-faint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 16px;
+}
+
+.idea-image-add:hover {
+  border-color: var(--accent);
+  color: var(--text-dim);
+}
+
+.idea-image-hint {
+  font-size: 9.5px;
+  line-height: 1.2;
+  text-align: center;
+  padding: 0 4px;
+}
+
 .idea-body {
   flex: 1;
   resize: none;
@@ -2264,6 +2405,81 @@ kbd {
     border-left: none;
     border-top: 1px solid var(--line-soft);
   }
+}
+
+/* ---------- transfer ---------- */
+
+.relocate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.relocate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border-left: 3px solid var(--ok);
+}
+
+.relocate--missing {
+  border-left-color: var(--bad);
+}
+
+.relocate-name {
+  width: 150px;
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relocate-tag {
+  font-size: 9.5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+  color: var(--ok);
+  flex-shrink: 0;
+}
+
+.relocate-tag--bad {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  color: var(--bad);
+}
+
+.relocate-paths {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 10.5px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.relocate-old {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relocate-new {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- dialog extras ---------- */

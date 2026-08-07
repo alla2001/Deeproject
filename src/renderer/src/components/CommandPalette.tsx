@@ -166,6 +166,12 @@ export function CommandPalette(): JSX.Element | null {
       },
       { id: 'add-project', label: 'Add project folder', icon: '➕', run: () => void addProjects() },
       { id: 'presets', label: 'Edit launch presets', icon: '⚡', run: () => setModal({ kind: 'presets' }) },
+      {
+        id: 'transfer',
+        label: 'Move between computers (export / import)',
+        icon: '⇄',
+        run: () => setModal({ kind: 'transfer' })
+      },
       { id: 'settings', label: 'Open settings', icon: '⚙', run: () => setModal({ kind: 'settings' }) }
     )
 

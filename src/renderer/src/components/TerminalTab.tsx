@@ -1,7 +1,13 @@
 import type { IDockviewPanelHeaderProps } from 'dockview'
 import { useStore } from '../state'
 import { useMenu } from './ContextMenu'
-import { closeTerminal, hideTerminal, restartTerminal, stopTerminal } from '../lib/actions'
+import {
+  closeTerminal,
+  hideTerminal,
+  restartTerminal,
+  stopTerminal,
+  togglePause
+} from '../lib/actions'
 import { disposeFile, useEditors } from '../lib/editors'
 import type { TerminalPanelParams } from './TerminalPanel'
 
@@ -47,6 +53,10 @@ function TerminalTabBody(props: IDockviewPanelHeaderProps<TerminalPanelParams>):
           { separator: true },
           { label: 'Restart', onClick: () => void restartTerminal(id), hint: 'Ctrl+Shift+R' },
           { label: 'Stop', onClick: () => void stopTerminal(id), disabled: status !== 'running' },
+          {
+            label: term.paused ? 'Resume' : 'Pause (free its resources)',
+            onClick: () => void togglePause(id)
+          },
           { separator: true },
           { label: 'Hide tab (keep terminal)', onClick: () => hideTerminal(id) },
           {
@@ -60,7 +70,13 @@ function TerminalTabBody(props: IDockviewPanelHeaderProps<TerminalPanelParams>):
     >
       <span className="tab-emoji">{term.emoji}</span>
       <span className="tab-title">{term.title}</span>
-      <span className={`tab-dot tab-dot--${status}`} />
+      {term.paused ? (
+        <span className="tab-paused" title="Paused — using no resources">
+          ❚❚
+        </span>
+      ) : (
+        <span className={`tab-dot tab-dot--${status}`} />
+      )}
       <button
         className="tab-close"
         title="Close terminal"

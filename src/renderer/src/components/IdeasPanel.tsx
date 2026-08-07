@@ -24,6 +24,7 @@ export function IdeasPanel(_props: IDockviewPanelProps<IdeasPanelParams>): JSX.E
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [tagDraft, setTagDraft] = useState('')
+  const [dropActive, setDropActive] = useState(false)
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -58,6 +59,31 @@ export function IdeasPanel(_props: IDockviewPanelProps<IdeasPanelParams>): JSX.E
     const idea = addIdea()
     setSelectedId(idea.id)
     setQuery('')
+  }
+
+  /** Copy files into the app's store and record them on the selected idea. */
+  async function attach(sources: string[]): Promise<void> {
+    if (!selected || sources.length === 0) return
+    const stored = await window.api.ideas.attach(selected.id, sources)
+    if (stored.length === 0) return
+    updateIdea(selected.id, { images: [...selected.images, ...stored] })
+  }
+
+  async function pick(): Promise<void> {
+    const chosen = await window.api.ideas.pickImages()
+    await attach(chosen)
+  }
+
+  async function pasteImage(): Promise<void> {
+    // Reuses the same clipboard-to-file path the terminals use.
+    const saved = await window.api.sys.clipboardImage()
+    if (saved) await attach([saved])
+  }
+
+  async function detach(image: string): Promise<void> {
+    if (!selected) return
+    updateIdea(selected.id, { images: selected.images.filter((i) => i !== image) })
+    await window.api.ideas.removeImage(image)
   }
 
   async function remove(id: string, title: string): Promise<void> {
@@ -212,8 +238,63 @@ export function IdeasPanel(_props: IDockviewPanelProps<IdeasPanelParams>): JSX.E
               </div>
             </div>
 
+            <div
+              className={`idea-images${dropActive ? ' idea-images--drop' : ''}`}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes('Files')) return
+                e.preventDefault()
+                setDropActive(true)
+              }}
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                setDropActive(false)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDropActive(false)
+                const paths = Array.from(e.dataTransfer.files)
+                  .map((f) => window.api.sys.pathForFile(f))
+                  .filter(Boolean)
+                void attach(paths)
+              }}
+            >
+              {selected.images.map((image) => (
+                <div className="idea-image" key={image}>
+                  <img
+                    src={window.api.sys.mediaUrl(image)}
+                    alt=""
+                    onClick={() => void window.api.sys.reveal(image)}
+                    title="Click to open"
+                  />
+                  <button
+                    className="idea-image-remove"
+                    title="Remove"
+                    onClick={() => void detach(image)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+
+              <button className="idea-image-add" onClick={() => void pick()} title="Attach images">
+                <span>＋</span>
+                <span className="idea-image-hint">
+                  {selected.images.length === 0 ? 'Add, paste or drop images' : 'Add'}
+                </span>
+              </button>
+            </div>
+
             <textarea
               className="idea-body"
+              onPaste={(e) => {
+                // An image on the clipboard becomes an attachment rather than
+                // pasting nothing into the text.
+                if (!Array.from(e.clipboardData.items).some((i) => i.type.startsWith('image/'))) {
+                  return
+                }
+                e.preventDefault()
+                void pasteImage()
+              }}
               placeholder="What is it? Why is it fun? What's the hook?"
               value={selected.body}
               // Debounced while typing; the blur below forces a final write.

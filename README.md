@@ -114,6 +114,20 @@ follow from that, and neither can be engineered away:
   with several top-level windows — Studio's dialogs, an editor's find window —
   only dock the main one; the rest stay loose on the desktop. Classic Win32
   apps behave best, which includes Roblox Studio.
+- **A few apps refuse to stay.** Some toolkits keep their own record of the
+  window hierarchy and undo the move from their side. Deeproject puts the window
+  back a few times, and if it keeps happening says so in the panel and leaves the
+  app on the desktop rather than flickering it in and out.
+
+While a docked app's tab is the one in front, it shares Deeproject's keyboard and
+mouse input. That is what lets it capture the pointer — dragging a selection past
+the edge of the panel, dragging a slider, mouse-look — because Windows only grants
+mouse capture to the foreground input queue, and a child window can never be the
+foreground window on its own. The sharing is dropped as soon as the tab goes to
+the back or Deeproject loses focus. A game that decides whether it has focus by
+asking `GetForegroundWindow` rather than `GetFocus` is beyond this: the answer is
+Deeproject's window, and while the game is hosted inside it, it cannot be the
+game's.
 
 Nothing is docked across a restart: a window handle only means anything while
 that window exists, and Windows reissues handles, so the tabs are dropped on

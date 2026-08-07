@@ -475,6 +475,7 @@ export function registerIpc(): void {
   )
   ipcMain.on('embed:allVisible', (_e, visible: boolean) => embedManager.setAllVisible(visible))
   ipcMain.on('embed:focus', (_e, hwnd: number) => embedManager.focus(hwnd))
+  ipcMain.on('embed:blur', (_e, hwnd: number) => embedManager.blur(hwnd))
 
   embedManager.on('capture', (hwnd: number | null) => broadcast('embed:capture', hwnd))
   ipcMain.handle('embed:capture', (_e, hwnd: number) => embedManager.captureMouse(hwnd))

@@ -213,6 +213,8 @@ const api = {
     /** Used to clear the way for modals, which a native child window covers. */
     setAllVisible: (visible: boolean): void => ipcRenderer.send('embed:allVisible', visible),
     focus: (hwnd: number): void => ipcRenderer.send('embed:focus', hwnd),
+    /** Stops the embed owning mouse and keyboard when its panel goes to the back. */
+    blur: (hwnd: number): void => ipcRenderer.send('embed:blur', hwnd),
     /** Hand mouse and keyboard to a docked game; Ctrl+Alt+M takes them back. */
     captureMouse: (hwnd: number): Promise<boolean> => ipcRenderer.invoke('embed:capture', hwnd),
     releaseMouse: (): Promise<boolean> => ipcRenderer.invoke('embed:release'),

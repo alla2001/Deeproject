@@ -277,6 +277,10 @@ class EmbedManager extends EventEmitter {
   private watchdog: NodeJS.Timeout | null = null
   /** The docked window currently holding the mouse, if any. */
   private captured: number | null = null
+  /** The app thread currently sharing our input queue; see `bindInput`. */
+  private inputBound: { hwnd: number; thread: number } | null = null
+  /** The embed whose panel is in front, restored when our window regains focus. */
+  private activeEmbed: number | null = null
 
   available(): boolean {
     return load()
@@ -445,8 +449,10 @@ class EmbedManager extends EventEmitter {
    * had before we took it. Safe to call for an unknown or dead hwnd.
    */
   detach(hwnd: number): boolean {
-    // Never leave the cursor fenced into a window we are about to let go of.
+    // Never leave the cursor fenced into a window we are about to let go of,
+    // nor our UI thread tied to one we no longer host.
     if (this.captured === hwnd) this.releaseMouse()
+    this.blur(hwnd)
     const saved = this.attached.get(hwnd)
     this.attached.delete(hwnd)
     if (this.attached.size === 0) this.stopWatchdog()
@@ -539,6 +545,7 @@ class EmbedManager extends EventEmitter {
     // Hiding a game that holds the mouse would strand the cursor in a rectangle
     // with nothing visible in it.
     if (!visible && this.captured === hwnd) this.releaseMouse()
+    if (!visible) this.blur(hwnd)
     user32!.ShowWindow(hwnd, visible ? SW_SHOWNA : SW_HIDE)
   }
 
@@ -624,20 +631,91 @@ class EmbedManager extends EventEmitter {
     return this.captured
   }
 
-  /** Move keyboard focus into the embedded app. */
+  /** Move keyboard focus into the embedded app, and keep input working there. */
   focus(hwnd: number): void {
     if (!load() || !this.attached.has(hwnd)) return
     if (!user32!.IsWindow(hwnd)) return
-    const ours = kernel32!.GetCurrentThreadId()
-    const theirs = user32!.GetWindowThreadProcessId(hwnd, null)
-    if (!theirs) return
-    try {
-      // SetFocus only works across threads whose input queues are attached.
-      if (ours !== theirs) user32!.AttachThreadInput(ours, theirs, true)
-      user32!.SetFocus(hwnd)
-    } finally {
-      if (ours !== theirs) user32!.AttachThreadInput(ours, theirs, false)
+    this.activeEmbed = hwnd
+    if (!this.bindInput(hwnd)) return
+    user32!.SetFocus(hwnd)
+  }
+
+  /** Its panel stopped being the active one, so it stops owning input. */
+  blur(hwnd: number): void {
+    if (!load()) return
+    if (this.activeEmbed === hwnd) this.activeEmbed = null
+    if (this.inputBound?.hwnd !== hwnd) return
+    this.unbindInput()
+  }
+
+  /**
+   * Our window went to the background. Holding another thread's input queue
+   * from back there buys nothing and leaves our UI waiting on it, so the
+   * binding is dropped — but which embed was in front is remembered, so
+   * `refocus` can restore it rather than making the user click twice.
+   */
+  suspendInput(): void {
+    if (!load()) return
+    this.unbindInput()
+  }
+
+  /** Our window came back to the front. */
+  refocus(): void {
+    if (!load()) return
+    const hwnd = this.activeEmbed
+    if (hwnd === null || !this.attached.has(hwnd)) return
+    this.focus(hwnd)
+  }
+
+  /**
+   * Share our input queue with the embedded application's thread, for as long
+   * as its panel is the active one.
+   *
+   * This is what makes the mouse behave inside a docked window. Windows gives
+   * mouse capture, focus and activation to one *input queue*, and the queue
+   * that owns them is our own — the embedded app's window is only a child, and
+   * a child can never be the foreground window. An app whose thread has its own
+   * queue therefore believes it is in the background, and Windows enforces
+   * that belief: `SetCapture` is documented to work only for the foreground
+   * window, so a click-and-drag that leaves the window — selecting text past
+   * the edge, dragging a slider — stops being delivered halfway through. Games
+   * that gate mouse-look on having focus simply never start.
+   *
+   * Attaching the two queues makes the app's thread part of the same
+   * foreground, and capture, `GetFocus` and `WM_SETFOCUS` all start telling it
+   * the truth. The cost is that the threads then block on each other, so a
+   * hang in the embedded app can stall our UI — which is why this is held only
+   * while its panel is genuinely in front, and dropped on blur, on hide and on
+   * undock.
+   *
+   * Games that ask `GetForegroundWindow` rather than `GetFocus` are beyond
+   * this: the answer is our window and cannot be theirs while they are hosted.
+   */
+  private bindInput(hwnd: number): boolean {
+    const theirs = Number(user32!.GetWindowThreadProcessId(hwnd, null))
+    if (!theirs) return false
+    if (this.inputBound?.thread === theirs) {
+      this.inputBound.hwnd = hwnd
+      return true
     }
+    this.unbindInput()
+
+    const ours = Number(kernel32!.GetCurrentThreadId())
+    // Nothing to attach when the app somehow shares our thread, but focus still
+    // has to move, so this counts as success.
+    if (ours === theirs) return true
+    if (!user32!.AttachThreadInput(ours, theirs, true)) return false
+    this.inputBound = { hwnd, thread: theirs }
+    return true
+  }
+
+  private unbindInput(): void {
+    const bound = this.inputBound
+    if (!bound) return
+    this.inputBound = null
+    const ours = Number(kernel32!.GetCurrentThreadId())
+    // Fails harmlessly if the other thread has already exited.
+    user32!.AttachThreadInput(ours, bound.thread, false)
   }
 
   /**
@@ -714,6 +792,7 @@ class EmbedManager extends EventEmitter {
         if (!user32!.IsWindow(hwnd)) {
           // A game that crashed while holding the mouse must not keep holding it.
           if (this.captured === hwnd) this.releaseMouse()
+          this.blur(hwnd)
           this.attached.delete(hwnd)
           this.emit('gone', hwnd)
           continue

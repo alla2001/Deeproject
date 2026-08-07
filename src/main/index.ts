@@ -89,8 +89,15 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
   // Alt-tabbing away from a docked game has to free the cursor too, or it stays
-  // fenced into a window that is no longer in front of the user.
-  mainWindow.on('blur', () => embedManager.releaseMouse())
+  // fenced into a window that is no longer in front of the user. The shared
+  // input queue goes with it: holding it while we are in the background buys
+  // nothing and leaves our UI thread waiting on someone else's.
+  mainWindow.on('blur', () => {
+    embedManager.releaseMouse()
+    embedManager.suspendInput()
+  })
+  // Coming back to the front hands input to whichever embed is in front of us.
+  mainWindow.on('focus', () => embedManager.refocus())
 
   // Remember size/position. `getNormalBounds` reports the restored geometry, so
   // maximising then quitting doesn't save a full-screen rectangle as the

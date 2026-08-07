@@ -58,8 +58,11 @@ export function EmbedPanel(props: IDockviewPanelProps<EmbedPanelParams>): JSX.El
       window.api.embed.setVisible(hwnd, e.isVisible)
       if (e.isVisible) report()
     })
+    // Input is shared with the embedded app only while its panel is in front;
+    // see the main process's `bindInput` for why that window matters.
     const offActive = props.api.onDidActiveChange((e) => {
       if (e.isActive) window.api.embed.focus(hwnd)
+      else window.api.embed.blur(hwnd)
     })
     const offGone = window.api.embed.onGone((dead) => {
       if (dead === hwnd) setGone(true)

@@ -161,20 +161,29 @@ export function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>): 
   const bgOpacity = term.backgroundImage ? term.backgroundOpacity : settings.defaultBackgroundOpacity
   const bgBlur = term.backgroundImage ? term.backgroundBlur : settings.defaultBackgroundBlur
 
+  /**
+   * Hand files to whatever is running here by typing their paths. A PTY carries
+   * bytes rather than attachments, and every CLI that takes a file takes a path
+   * to one — so this is the same thing the drop target and an image paste do.
+   */
+  function attach(paths: string[]): void {
+    const tokens = paths.filter(Boolean).map(pathToken)
+    if (tokens.length === 0) return
+    window.api.pty.write(id, tokens.join(''))
+    getEntry(id)?.term.focus()
+  }
+
   /** Dropping files types their paths, which is how you hand Claude an image. */
   function onDrop(e: React.DragEvent): void {
     e.preventDefault()
     setDropActive(false)
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length === 0) return
-    const tokens = files
-      .map((file) => window.api.sys.pathForFile(file))
-      .filter(Boolean)
-      .map(pathToken)
-    if (tokens.length > 0) {
-      window.api.pty.write(id, tokens.join(''))
-      getEntry(id)?.term.focus()
-    }
+    attach(Array.from(e.dataTransfer.files).map((file) => window.api.sys.pathForFile(file)))
+  }
+
+  async function pickAndAttach(): Promise<void> {
+    // Opening in the terminal's own folder saves the usual navigation, since
+    // that is where the file being talked about nearly always is.
+    attach(await window.api.dialog.pickFiles(term?.cwd))
   }
 
   return (
@@ -210,6 +219,24 @@ export function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>): 
       {dropActive && (
         <div className="term-drop">
           <span>Drop to paste the file path</span>
+        </div>
+      )}
+
+      {/* Hidden while the find bar is up, which claims the same corner. */}
+      {!findOpen && (
+        <div className="term-tools">
+          <button
+            className="term-tool"
+            onClick={() => void pickAndAttach()}
+            disabled={status !== 'running'}
+            title={
+              status === 'running'
+                ? 'Attach files — types their paths into this terminal'
+                : 'Nothing is running in this terminal'
+            }
+          >
+            📎
+          </button>
         </div>
       )}
 

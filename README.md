@@ -300,13 +300,18 @@ generated `--mcp-config` file from its own data folder.
 `Ctrl+C` copies when text is selected and sends an interrupt otherwise, so it
 behaves the way it does in Windows Terminal.
 
-**Attaching an image to a terminal.** Copy a screenshot (`Win+Shift+S`, or
-`PrtSc`) and press `Ctrl+V` in the terminal — the image is written to
-`%APPDATA%\deeproject\pastes\` and its path is typed at the cursor, ready for
-Claude to read. Dragging any file onto a terminal does the same with that file's
-path. A PTY carries bytes, not pictures, so a path is the way images reach a CLI;
-paths containing spaces are quoted automatically, and pastes older than a week
-are cleaned up on the next paste.
+**Attaching a file to a terminal.** The 📎 button in the terminal's top right
+opens a file picker in that terminal's own folder and types what you choose at
+the cursor — several files at once if you pick several. Dragging files onto a
+terminal does the same, and `Ctrl+V` with a screenshot on the clipboard
+(`Win+Shift+S`, or `PrtSc`) writes the image to `%APPDATA%\deeproject\pastes\`
+and types that path.
+
+All three type a path rather than sending the file: a PTY carries bytes, not
+attachments, and every CLI that takes a file takes a path to one. Paths
+containing spaces are quoted automatically, and nothing is submitted — the path
+lands at the cursor for you to finish the sentence around. Pastes older than a
+week are cleaned up on the next paste.
 
 ## How it works
 

@@ -230,6 +230,9 @@ const api = {
     pickFolder: (): Promise<{ path: string; name: string }[]> =>
       ipcRenderer.invoke('dialog:pickFolder'),
     pickImage: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickImage'),
+    /** Files to hand to a terminal; opens in `defaultPath` when one is given. */
+    pickFiles: (defaultPath?: string): Promise<string[]> =>
+      ipcRenderer.invoke('dialog:pickFiles', defaultPath),
     confirm: (opts: {
       title: string
       message: string

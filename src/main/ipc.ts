@@ -165,6 +165,21 @@ export function registerIpc(): void {
     return result.filePaths[0]
   })
 
+  // Files to hand to whatever is running in a terminal. `defaultPath` is the
+  // terminal's own folder, since that is where the thing being talked about
+  // almost always is.
+  ipcMain.handle('dialog:pickFiles', async (e, defaultPath?: string) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Attach files',
+      buttonLabel: 'Attach',
+      defaultPath: defaultPath || undefined,
+      properties: ['openFile', 'multiSelections']
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return result.canceled ? [] : result.filePaths
+  })
+
   ipcMain.handle('dialog:confirm', async (e, opts: { title: string; message: string; detail?: string; confirmLabel?: string }) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     const params: Electron.MessageBoxOptions = {

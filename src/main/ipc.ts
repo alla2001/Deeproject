@@ -18,9 +18,11 @@ import type {
   PtyStartOptions,
   RobloxConfig,
   RobloxCreator,
+  TerminalAttention,
   TerminalStats
 } from '@shared/types'
 import { attentionWatcher } from './attention'
+import { updateTray } from './tray'
 import { flushAll, loadLayout, loadState, saveLayout, saveState } from './store'
 import {
   applyBundle,
@@ -156,7 +158,16 @@ export function registerIpc(): void {
     attentionWatcher.onStats(all)
   })
 
-  attentionWatcher.on('update', (all) => broadcast('attention:update', all))
+  attentionWatcher.on('update', (all: Record<string, TerminalAttention>) => {
+    broadcast('attention:update', all)
+    // The tray is the only thing visible while the window is put away, so what
+    // it says has to keep up with what the terminals are doing.
+    const statuses = ptyManager.allStatuses()
+    updateTray({
+      running: Object.values(statuses).filter((s) => s === 'running').length,
+      needsYou: Object.values(all).filter((a) => a.needsYou).length
+    })
+  })
   attentionWatcher.on('attention', (e: AttentionAlert) => announce(e))
   rojoManager.on('state', (state) => broadcast('rojo:state', state))
   rojoManager.on('log', (event) => broadcast('rojo:log', event))

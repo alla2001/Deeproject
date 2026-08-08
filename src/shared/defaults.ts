@@ -63,6 +63,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // enough that a finished session is noticed while you still care.
   attentionIdleMs: 6000,
   attentionNotify: true,
+  runInBackground: true,
   notionTokenSet: false
 }
 

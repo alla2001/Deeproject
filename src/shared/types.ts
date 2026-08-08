@@ -212,6 +212,12 @@ export interface AppSettings {
   attentionIdleMs: number
   /** Also raise a Windows notification, not just the in-app marker. */
   attentionNotify: boolean
+  /**
+   * Closing the window puts Deeproject in the notification area instead of
+   * quitting, so terminals keep running and can still report back. Off means
+   * the close button ends everything, as it used to.
+   */
+  runInBackground: boolean
   /** Notion integration token, encrypted at rest by the OS keystore. */
   notionTokenSet: boolean
 }

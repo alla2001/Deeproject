@@ -1,4 +1,13 @@
-import { app, BrowserWindow, globalShortcut, net, protocol, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  net,
+  Notification,
+  protocol,
+  session,
+  shell
+} from 'electron'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpc } from './ipc'
@@ -7,7 +16,8 @@ import { ptyManager } from './pty'
 import { rojoManager } from './rojo'
 import { statsMonitor } from './stats'
 import { startMcpServer, stopMcpServer } from './mcp'
-import { flushAll, initStore, loadWindow, saveWindow } from './store'
+import { appIcon, createTray, destroyTray } from './tray'
+import { flushAll, initStore, loadState, loadWindow, saveWindow } from './store'
 
 const MEDIA_SCHEME = 'deepmedia'
 const APP_SCHEME = 'app'
@@ -35,6 +45,35 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow: BrowserWindow | null = null
+/**
+ * Set once the app is genuinely on its way out, so the close handler can tell
+ * "the user pressed the X" from "we are shutting down". Without it, hiding on
+ * close would make the app impossible to quit.
+ */
+let quitting = false
+/** Explained once, the first time the close button doesn't do what it used to. */
+let explainedBackground = false
+
+function backgroundEnabled(): boolean {
+  try {
+    return loadState().settings.runInBackground !== false
+  } catch {
+    return false
+  }
+}
+
+/** Bring the window back from the notification area. */
+export function revealWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+export function beginQuit(): void {
+  quitting = true
+  app.quit()
+}
 
 /**
  * When the app is launched from a terminal that later goes away, writing to
@@ -45,6 +84,23 @@ for (const stream of [process.stdout, process.stderr]) {
   stream.on('error', () => {
     /* the pipe is gone; there is nowhere left to report it */
   })
+}
+
+/**
+ * Say so, once, the first time the close button hides rather than quits.
+ *
+ * Silently changing what a window's X does is the kind of thing that has people
+ * hunting for a process in Task Manager, and a docked application goes away
+ * with the window, which looks like a crash if nobody said it would.
+ */
+function notifyStillRunning(): void {
+  if (!Notification.isSupported()) return
+  const toast = new Notification({
+    title: 'Deeproject is still running',
+    body: 'Your terminals keep going and will tell you when they finish. Quit for real from its icon in the notification area.'
+  })
+  toast.on('click', () => revealWindow())
+  toast.show()
 }
 
 /** Console output that cannot throw, whatever has happened to stdio. */
@@ -67,6 +123,7 @@ function createWindow(): void {
     minWidth: 860,
     minHeight: 560,
     show: false,
+    icon: appIcon(),
     backgroundColor: '#0d1017',
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#0d1017', symbolColor: '#8b94a7', height: 38 },
@@ -154,9 +211,24 @@ function createWindow(): void {
   }
 
   // Everything pending goes to disk before the window is gone, not just on quit.
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
     persistBounds()
     flushAll()
+
+    // Closing the window normally means quitting, and quitting kills every
+    // terminal — they are child processes of this app. Running in the
+    // background is what lets a long session survive the window being put away,
+    // so the close button hides instead and the tray holds the app open.
+    if (!quitting && backgroundEnabled()) {
+      event.preventDefault()
+      mainWindow?.hide()
+      if (!explainedBackground) {
+        explainedBackground = true
+        notifyStillRunning()
+      }
+      return
+    }
+
     // Windows destroys child windows along with their parent, so anything still
     // docked has to be handed back before this window goes away — otherwise
     // closing Deeproject would close the user's Studio or editor with it. This
@@ -250,12 +322,9 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
+  // Launching Deeproject again while it sits in the notification area should
+  // bring the window back rather than appear to do nothing.
+  app.on('second-instance', () => revealWindow())
 
   app.whenReady().then(async () => {
     app.setAppUserModelId('com.deeproject.app')
@@ -268,6 +337,10 @@ if (!gotLock) {
     // the task tools at launch.
     await startMcpServer()
     createWindow()
+    // Always present, not only once the window has been hidden: something has
+    // to show the app is running before the user finds out the hard way, and it
+    // is the only route back to a window that has been put away.
+    createTray({ open: () => revealWindow(), quit: () => beginQuit() })
 
     // The only way out of a captured mouse. It has to be a system-wide hotkey:
     // while a game holds the pointer and the keyboard, nothing we render is
@@ -287,11 +360,15 @@ if (!gotLock) {
     })
   })
 
+  // Only reachable when the window was genuinely destroyed; running in the
+  // background prevents that in the first place.
   app.on('window-all-closed', () => {
     app.quit()
   })
 
   app.on('before-quit', () => {
+    quitting = true
+    destroyTray()
     flushAll()
     globalShortcut.unregisterAll()
     // Belt and braces: the window's own close handler normally gets there first.

@@ -217,6 +217,22 @@ Deeproject is not in front, its taskbar button flashes and — unless you turn i
 off in Settings — Windows shows a notification; clicking it opens that terminal.
 Settings has the quiet threshold too, or 0 to switch the whole thing off.
 
+**Closing the window doesn't stop the work.** Terminals are child processes of
+Deeproject, so quitting genuinely ends every one of them — a session cannot
+outlive the app. What it can outlive is the *window*: the close button puts
+Deeproject in the notification area instead of quitting, sessions carry on, and
+they still tell you when they finish. The tray icon shows how many are running
+and gains an amber dot when one wants you; clicking it brings the window back,
+as does launching Deeproject again. **Quit for real** from the tray icon's menu.
+
+Two things follow from the window being hidden rather than open. A docked
+application goes away with it and comes back when you restore — it is not
+closed, just not on screen. And the first time the close button hides rather
+than quits, Deeproject says so in a notification, because a window whose X no
+longer quits is otherwise something you find out about in Task Manager. Turn
+*keep running when the window is closed* off in Settings and the close button
+ends everything, as it did before.
+
 **Rojo.** Each project has its own Rojo config — project file (auto-detected),
 port (each new project gets the next free one), executable override, and optional
 start-on-launch. The 🧩 button on a project row toggles the server, a green chip
@@ -437,6 +453,10 @@ node scripts/embed-smoke.cjs                            # list dockable windows
 node scripts/embed-attach-test.cjs <pid> "<title>"      # dock/capture/detach round trip
 node scripts/embed-escape-test.cjs <pid>                # an app that undocks itself is put back
 node scripts/attention-test.cjs                         # when a terminal counts as wanting you
+powershell -File scripts/background-close-test.ps1 -ProfileDir <dir>
+                                                        # closing the window keeps terminals alive
+powershell -File scripts/embed-geometry-watch.ps1 -TitleMatch "<title>"
+                                                        # is a docked window mis-sized, or fighting us
 node_modules/electron/dist/electron.exe scripts/embed-input-test.cjs
                                                         # a docked window really owns the mouse
 node_modules/electron/dist/electron.exe scripts/integration-write-test.cjs

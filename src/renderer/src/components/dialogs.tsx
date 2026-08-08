@@ -1004,6 +1004,21 @@ export function SettingsDialog(): JSX.Element {
         0 to switch it off; raise it if sessions that are only thinking get flagged.
       </p>
 
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.runInBackground}
+          onChange={(e) => update({ runInBackground: e.target.checked }, true)}
+        />
+        keep running when the window is closed
+      </label>
+      <p className="muted">
+        Terminals are child processes of Deeproject, so quitting ends every one of them. With this
+        on, the close button puts the app in the notification area instead: sessions carry on and
+        can still tell you when they finish. Quit for real from the tray icon&rsquo;s menu. Turn it
+        off and the close button ends everything, as it used to.
+      </p>
+
       <hr className="rule" />
       <h3 className="section">Notion</h3>
       <NotionTokenField />
